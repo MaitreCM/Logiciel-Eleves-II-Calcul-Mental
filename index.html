@@ -195,6 +195,24 @@ body {
   width: 100%;
   margin-bottom: 20px;
 }
+.lvl-card {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 12px 6px;
+  text-align: center;
+  cursor: pointer;
+  border: 2.5px solid transparent;
+  transition: all 0.14s;
+}
+.lvl-card:hover { transform: translateY(-2px); }
+.lvl-card[data-lv="1"] { --clr: var(--accent3); }
+.lvl-card[data-lv="2"] { --clr: var(--accent4); }
+.lvl-card[data-lv="3"] { --clr: var(--accent2); }
+.lvl-card[data-lv="4"] { --clr: var(--accent1); }
+.lvl-card.selected { border-color: var(--clr); box-shadow: 0 0 0 3px color-mix(in srgb, var(--clr) 18%, transparent); }
+.lvl-icon { font-size: 1.5rem; margin-bottom: 3px; }
+.lvl-name { font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: var(--clr); }
+
 .settings-box {
   background: var(--card);
   border-radius: 16px;
@@ -660,14 +678,30 @@ body.cat-proport { --clr-active: #0652dd; }
 </div>
 
 <!-- ====================================================
-     ÉCRAN 3 : RÉGLAGES DE LA SÉANCE
+     ÉCRAN 3 : NIVEAU + RÉGLAGES
 ===================================================== -->
 <div class="screen" id="s3">
   <button class="btn-back" onclick="goBackFromS3()">← Retour</button>
-  <div class="app-title" style="font-size:1.5rem; margin-bottom:8px;">Prépare ta séance</div>
-  <div style="font-size:0.86rem;color:var(--muted);line-height:1.45;margin-bottom:16px;text-align:center;">
-    🎯 Tu choisis <strong>ce que tu veux travailler</strong>.<br>
-    🧠 La difficulté s'adapte automatiquement à tes réponses.
+  <div class="app-title" style="font-size:1.5rem; margin-bottom:16px;">Paramètres</div>
+
+  <div class="section-lbl">Niveau de difficulté</div>
+  <div class="level-row">
+    <div class="lvl-card" data-lv="1" onclick="selectLevel(1)">
+      <div class="lvl-icon">🌱</div>
+      <div class="lvl-name">Débutant</div>
+    </div>
+    <div class="lvl-card" data-lv="2" onclick="selectLevel(2)">
+      <div class="lvl-icon">⭐</div>
+      <div class="lvl-name">Intermédiaire</div>
+    </div>
+    <div class="lvl-card" data-lv="3" onclick="selectLevel(3)">
+      <div class="lvl-icon">🔥</div>
+      <div class="lvl-name">Confirmé</div>
+    </div>
+    <div class="lvl-card" data-lv="4" onclick="selectLevel(4)">
+      <div class="lvl-icon">🏆</div>
+      <div class="lvl-name">Expert</div>
+    </div>
   </div>
 
   <div class="settings-box">
@@ -699,6 +733,9 @@ body.cat-proport { --clr-active: #0652dd; }
   </div>
 
   <button class="btn btn-primary" id="startBtn" onclick="startGame()">▶ Commencer !</button>
+  <div id="levelWarning" style="display:none; margin-top:10px; font-size:0.82rem; font-weight:700; color:var(--accent1); text-align:center; animation: fadeIn 0.2s ease;">
+    ⚠️ Choisis d'abord un niveau de difficulté !
+  </div>
 </div>
 
 <!-- ====================================================
@@ -710,7 +747,7 @@ body.cat-proport { --clr-active: #0652dd; }
     <div class="g-chip">Q <span id="gQNum">1</span>/<span id="gQTotal">10</span></div>
     <div class="g-chip">✅ <span id="gScore">0</span></div>
     <button class="g-chip g-chip-pause" id="pauseBtn" onclick="togglePause()">⏸ Pause</button>
-    <div class="g-chip">🧠 Adaptatif</div>
+    <div class="g-chip" id="gLvLabel">Débutant</div>
   </div>
   <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
 
@@ -947,9 +984,7 @@ const CAT_NAMES = { add:'Addition', sub:'Soustraction', mul:'Multiplication', di
 // ================================================================
 // STATE
 // ================================================================
-let selCat=null, selTypeId=null, selSubIdx=0, selLevel=1, selTableSet=[];
-let adaptiveHistory=[], adaptiveSeen=new Set(), questionStartedAt=0;
-const ADAPTIVE_MIN_LEVEL=1, ADAPTIVE_MAX_LEVEL=4;
+let selCat=null, selTypeId=null, selSubIdx=0, selLevel=null, selTableSet=[];
 let timePerQ=10, nbQ=10;
 let questions=[], curQ=0, score=0, answers=[];
 let timer=null, timeLeft=0, answered=false, isDual=false, dualFocus='q';
@@ -1000,6 +1035,13 @@ function applyTablesLock() {
   if(oldNotice) oldNotice.remove();
 
   if(isLocked){
+    // No level chosen yet for mul_tables → hide all chips completely
+    if(selTypeId==='mul_tables' && !selLevel){
+      chips.forEach(b=>{b.style.display='none';});
+      const tmp=document.getElementById('tmpFixedChip');if(tmp)tmp.remove();
+      const lbl=document.getElementById('tablesLevelLabel');if(lbl)lbl.remove();
+      return;
+    }
     // Determine fixed time
     let fixedTime;
     if(selTypeId==='mul_tables'){
@@ -1035,6 +1077,17 @@ function applyTablesLock() {
       t.disabled=true;t.style.cursor='default';
       t.textContent=chipLabel;
       timeChipsEl.appendChild(t);
+    }
+
+    // Add level label NEXT TO the chip (inside chip-row)
+    const oldLbl=document.getElementById('tablesLevelLabel');if(oldLbl)oldLbl.remove();
+    if(selTypeId==='mul_tables' && selLevel){
+      const lvNames={1:'Débutant',2:'Intermédiaire',3:'Confirmé',4:'Expert'};
+      const lbl=document.createElement('span');
+      lbl.id='tablesLevelLabel';
+      lbl.style.cssText='font-size:0.82rem;font-weight:700;color:var(--accent2);align-self:center;white-space:nowrap;';
+      lbl.textContent='('+lvNames[selLevel]+')';
+      timeChipsEl.appendChild(lbl);
     }
 
   } else {
@@ -1314,6 +1367,11 @@ function showSubModal(t){
 // ================================================================
 // SCREEN 3 : level + settings
 // ================================================================
+function selectLevel(lv){
+  selLevel=lv;
+  document.querySelectorAll('.lvl-card').forEach(c=>c.classList.toggle('selected',parseInt(c.dataset.lv)===lv));
+  if(selTypeId==='mul_tables') applyTablesLock();
+}
 function setTime(n){
   timePerQ=n;
   const vals=[5,10,15,20,30,45,60,75,90,120];
@@ -2482,63 +2540,58 @@ function genQ(typeId,subIdx,lv){
 // ================================================================
 // GAME
 // ================================================================
-function questionCanonicalKey(q){
-  const isCommutative=['add','mul','proport'].includes(selCat);
-  const raw=(q.text||'').replace(' = ?','').replace('…','?');
-  if(q.isDual||q.allowDec) return raw;
-  const nums=raw.split(/[\+\-×÷=\?\/]/).map(s=>s.trim()).filter(Boolean);
-  if(isCommutative&&nums.length>=2){
-    return nums.slice().sort((a,b)=>Number(a)-Number(b)).join('|');
-  }
-  return raw;
-}
-
-function generateAdaptiveQuestion(){
-  let attempts=0;
-  let q=null;
-  do{
-    q=genQ(selTypeId,selSubIdx,selLevel);
-    attempts++;
-  }while(adaptiveSeen.has(questionCanonicalKey(q)) && attempts<40);
-
-  q.internalDifficulty=selLevel;
-  adaptiveSeen.add(questionCanonicalKey(q));
-  questions[curQ]=q;
-  return q;
-}
-
-function updateAdaptiveLevel(ok,responseMs,skipped){
-  adaptiveHistory.push({ok,responseMs,skipped,difficulty:selLevel});
-  if(adaptiveHistory.length<3)return;
-
-  const recent=adaptiveHistory.slice(-3);
-  const successRate=recent.filter(a=>a.ok).length/recent.length;
-  const avgTime=recent.reduce((sum,a)=>sum+a.responseMs,0)/recent.length;
-  const timeRatio=avgTime/Math.max(1000,timePerQ*1000);
-
-  // On monte seulement si la réussite est nette et suffisamment rapide.
-  if(successRate>=2/3 && timeRatio<=0.70){
-    selLevel=Math.min(ADAPTIVE_MAX_LEVEL,selLevel+1);
+function startGame(){
+  if(!selCat||!selTypeId){alert('Choisis une opération et un type !');nav(1,'back');return;}
+  if(!selLevel){
+    const w=document.getElementById('levelWarning');
+    w.style.display='block';
+    setTimeout(()=>w.style.display='none', 3000);
     return;
   }
 
-  // On redescend si l'élève accumule les erreurs, les abandons ou les réponses trop lentes.
-  const difficultCount=recent.filter(a=>!a.ok||a.skipped||a.responseMs>timePerQ*900).length;
-  if(successRate<=1/3 || difficultCount>=2){
-    selLevel=Math.max(ADAPTIVE_MIN_LEVEL,selLevel-1);
+  // Commutative operations: + and ×
+  const isCommutative = ['add','mul','proport'].includes(selCat);
+
+  // Build a canonical key for a question to detect duplicates
+  function canonicalKey(q){
+    // Extract numbers from the text (strip " = ?", "…", "?")
+    const raw = q.text.replace(' = ?','').replace('…','?');
+    // For dual (quotient+reste), use text as-is
+    if(q.isDual) return raw;
+    // For decimal answers keep as-is (less likely to repeat)
+    if(q.allowDec) return raw;
+    // Split on operators to get operands
+    const nums = raw.split(/[\+\-\×\÷\=\?\/]/).map(s=>s.trim()).filter(s=>s!=='');
+    if(isCommutative && nums.length>=2){
+      // Sort numbers to treat "3 + 5" same as "5 + 3"
+      return nums.slice().sort((a,b)=>Number(a)-Number(b)).join('|');
+    }
+    return raw;
   }
-}
 
-function startGame(){
-  if(!selCat||!selTypeId){alert('Choisis une opération et un type !');nav(1,'back');return;}
-
-  // La difficulté n'est plus choisie par l'élève : elle est pilotée par le moteur.
-  selLevel=ADAPTIVE_MIN_LEVEL;
-  adaptiveHistory=[];
-  adaptiveSeen=new Set();
   questions=[];
-  curQ=0;score=0;answers=[];answered=false;paused=false;questionStartedAt=0;
+  const seen=new Set();
+  let attempts=0;
+  const maxAttempts=nbQ*50;
 
+  while(questions.length<nbQ && attempts<maxAttempts){
+    attempts++;
+    const q=genQ(selTypeId,selSubIdx,selLevel);
+    const key=canonicalKey(q);
+    if(!seen.has(key)){
+      seen.add(key);
+      questions.push(q);
+    }
+  }
+  // If we couldn't find enough unique questions, fill with whatever we have
+  while(questions.length<nbQ){
+    questions.push(genQ(selTypeId,selSubIdx,selLevel));
+  }
+
+  curQ=0;score=0;answers=[];answered=false;paused=false;
+
+  const lvNames={1:'Débutant',2:'Intermédiaire',3:'Confirmé',4:'Expert'};
+  document.getElementById('gLvLabel').textContent=lvNames[selLevel];
   document.getElementById('gQTotal').textContent=nbQ;
   nav(4,'fwd');
   setTimeout(showQuestion,300);
@@ -2655,7 +2708,7 @@ function isTouchDevice(){
 function showQuestion(){
   if(curQ>=nbQ){endGame();return;}
   answered=false;
-  const q=questions[curQ]||generateAdaptiveQuestion();
+  const q=questions[curQ];
   isDual=q.isDual;
 
   document.getElementById('gQNum').textContent=curQ+1;
@@ -2700,9 +2753,7 @@ function showQuestion(){
     inp.value='';inp.className='answer-input';
     if(!isTouchDevice())setTimeout(()=>inp.focus(),80);
   }
-  bStart();
-  questionStartedAt=performance.now();
-  startCountdown();
+  bStart();startCountdown();
 }
 
 function getDualLabels(){
@@ -2907,10 +2958,7 @@ function formatDualGiven(v1,v2,q){
 }
 
 function recordAns(given,ok,skipped){
-  const cq=questions[curQ];
-  const responseMs=questionStartedAt?Math.max(0,performance.now()-questionStartedAt):timePerQ*1000;
-  answers.push({q:cq.isFrac?fracLabel(cq):cq.text, ans:cq.answer,ans2:cq.answer2,given,ok,skipped,isDual:cq.isDual,hint:cq.hint||'',internalDifficulty:cq.internalDifficulty||selLevel,responseMs});
-  updateAdaptiveLevel(ok,responseMs,skipped);
+  const cq=questions[curQ]; answers.push({q:cq.isFrac?fracLabel(cq):cq.text, ans:cq.answer,ans2:cq.answer2,given,ok,skipped,isDual:cq.isDual,hint:cq.hint||''});
 }
 
 function nextQ(){curQ++;if(curQ>=nbQ)endGame();else showQuestion();}
@@ -3123,6 +3171,7 @@ function drawResultSvg(pct){
 }
 
 function printResults(){
+  const lvNames={1:'Débutant',2:'Intermédiaire',3:'Confirmé',4:'Expert'};
   const catNames={add:'Addition',sub:'Soustraction',mul:'Multiplication',div:'Division',
     frac:'Fractions',mesure:'Grandeurs',estimation:'Estimation',suite:'Suites',proport:'Proportionnalité'};
   const typeName=selTypeId?(TYPES[selCat]?.find(t=>t.id===selTypeId)?.name||''):'';
@@ -3184,7 +3233,7 @@ function printResults(){
 <header>
   <div>
     <div class="title">🧮 Calcul Mental — Correction</div>
-    <div class="meta">${catNames[selCat]||''} · ${typeName} · Difficulté adaptative</div>
+    <div class="meta">${catNames[selCat]||''} · ${typeName} · ${lvNames[selLevel]||''}</div>
   </div>
   <div class="controls">
     <button class="size-btn" onclick="changeSize(-0.15)">−</button>
