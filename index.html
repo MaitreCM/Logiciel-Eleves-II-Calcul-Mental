@@ -322,6 +322,20 @@ body {
   text-align: center;
 }
 .login-box { width: 100%; max-width: 360px; margin: 0 auto; }
+
+.admin-list-item {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--card); border-radius: 14px; padding: 14px 18px;
+  margin-bottom: 10px; cursor: pointer; transition: transform 0.15s ease;
+}
+.admin-list-item:hover { transform: translateY(-1px); background: var(--card2); }
+.admin-list-item .nom { font-weight: 800; }
+.admin-list-item .detail { color: var(--muted); font-size: 0.82rem; }
+.admin-list-item .supprimer {
+  background: none; border: none; color: var(--accent1); font-weight: 800;
+  cursor: pointer; font-size: 1.1rem; padding: 4px 8px;
+}
+.admin-empty { color: var(--muted); text-align: center; padding: 20px 0; font-size: 0.9rem; }
 .btn-secondary:hover { color: var(--text); border-color: var(--muted); }
 
 /* ========== GAME SCREEN ========== */
@@ -653,10 +667,12 @@ body.cat-proport { --clr-active: #0652dd; }
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
   import {
-    getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+    getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+    signOut, onAuthStateChanged
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
-    getFirestore, doc, getDoc
+    getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
+    collection, query, where, getDocs
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -671,6 +687,15 @@ body.cat-proport { --clr-active: #0652dd; }
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db = getFirestore(app);
+
+  // Seconde instance Firebase, uniquement pour créer des comptes élèves
+  // depuis l'interface admin SANS déconnecter l'enseignant : créer un
+  // utilisateur avec l'instance "auth" principale connecterait automati-
+  // quement ce nouvel utilisateur à la place de l'enseignant. En créant
+  // le compte élève sur une instance séparée (secondaryAuth), la session
+  // de l'enseignant sur "auth" n'est jamais affectée.
+  const secondaryApp = initializeApp(firebaseConfig, 'secondaire');
+  const secondaryAuth = getAuth(secondaryApp);
 
   // Un identifiant élève n'est pas une vraie adresse e-mail : Firebase Auth
   // exige pourtant un format e-mail pour la connexion par mot de passe.
@@ -691,16 +716,86 @@ body.cat-proport { --clr-active: #0652dd; }
     await signOut(auth);
   }
 
+  // --- Enseignant : vrai e-mail, compte classique ---
+  async function inscrireEnseignant(email, motDePasse) {
+    const credentiel = await createUserWithEmailAndPassword(auth, email, motDePasse);
+    await setDoc(doc(db, 'enseignants', credentiel.user.uid), {
+      email, creeLe: new Date().toISOString(),
+    });
+    return credentiel.user;
+  }
+
+  async function connecterEnseignant(email, motDePasse) {
+    const credentiel = await signInWithEmailAndPassword(auth, email, motDePasse);
+    return credentiel.user;
+  }
+
+  async function estCompteEnseignant(uid) {
+    const snap = await getDoc(doc(db, 'enseignants', uid));
+    return snap.exists();
+  }
+
+  // --- Gestion des classes ---
+  async function creerClasse(enseignantUid, nomClasse, codeClasse) {
+    const ref = await addDoc(collection(db, 'classes'), {
+      nom: nomClasse, codeClasse: codeClasse.trim().toLowerCase(),
+      enseignantUid, creeLe: new Date().toISOString(),
+    });
+    return ref.id;
+  }
+
+  async function listerClasses(enseignantUid) {
+    const q = query(collection(db, 'classes'), where('enseignantUid', '==', enseignantUid));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }
+
+  // --- Gestion des élèves au sein d'une classe ---
+  // Crée le compte Firebase Auth (via la seconde instance, cf. plus haut)
+  // PUIS la fiche Firestore de l'élève dans la classe.
+  async function ajouterEleve(classeId, codeClasse, prenom, identifiant, motDePasse) {
+    const email = fabriquerEmailEleve(codeClasse, identifiant);
+    const credentiel = await createUserWithEmailAndPassword(secondaryAuth, email, motDePasse);
+    const uid = credentiel.user.uid;
+    await signOut(secondaryAuth); // nettoyage : referme la session sur l'instance secondaire
+    await setDoc(doc(db, 'classes', classeId, 'eleves', uid), {
+      prenom, identifiant: identifiant.trim().toLowerCase(), uid,
+      creeLe: new Date().toISOString(),
+    });
+    return uid;
+  }
+
+  async function listerEleves(classeId) {
+    const snap = await getDocs(collection(db, 'classes', classeId, 'eleves'));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }
+
+  async function supprimerEleveDeLaListe(classeId, eleveId) {
+    // Retire la fiche élève de la classe. Ça ne supprime PAS le compte
+    // Firebase Auth correspondant (ça demanderait les droits admin,
+    // cf. remarque sur les Cloud Functions) : l'élève ne pourra plus être
+    // géré depuis l'admin, mais techniquement son compte reste créé.
+    await deleteDoc(doc(db, 'classes', classeId, 'eleves', eleveId));
+  }
+
   // Exposés pour le reste du programme (script classique, non-module)
   window.FirebaseApp = {
-    auth, db, doc, getDoc,
+    auth, db, doc, getDoc, setDoc, updateDoc,
     fabriquerEmailEleve, connecterEleve, deconnecter,
+    inscrireEnseignant, connecterEnseignant, estCompteEnseignant,
+    creerClasse, listerClasses,
+    ajouterEleve, listerEleves, supprimerEleveDeLaListe,
   };
 
-  // Si une session est déjà active (rechargement de page), on saute l'écran
-  // de connexion et on relance directement l'application pour cet élève.
-  onAuthStateChanged(auth, (user) => {
-    if (user && typeof window.onEleveConnecte === 'function') {
+  // Si une session est déjà active (rechargement de page), on redirige
+  // directement vers l'écran qui va bien (admin si enseignant, jeu si élève)
+  // sans repasser par l'écran de connexion.
+  onAuthStateChanged(auth, async (user) => {
+    if (!user) return;
+    const estEns = await estCompteEnseignant(user.uid);
+    if (estEns && typeof window.onEnseignantConnecte === 'function') {
+      window.onEnseignantConnecte(user);
+    } else if (!estEns && typeof window.onEleveConnecte === 'function') {
       window.onEleveConnecte(user);
     }
   });
@@ -719,6 +814,57 @@ body.cat-proport { --clr-active: #0652dd; }
     <input type="password" class="login-field" id="loginMotDePasse" placeholder="Ton mot de passe" autocomplete="off">
     <div class="login-error" id="loginErreur"></div>
     <button class="btn btn-primary" onclick="tenterConnexion()">Se connecter</button>
+    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="nav('EnsLogin')">Je suis l'enseignant</button>
+  </div>
+</div>
+
+<!-- ====================================================
+     ÉCRAN ENSEIGNANT : CONNEXION / INSCRIPTION
+===================================================== -->
+<div class="screen" id="sEnsLogin">
+  <div class="app-title" style="margin-top:64px;">👩‍🏫 Espace enseignant</div>
+  <div class="login-box" style="margin-top:40px;">
+    <input type="email" class="login-field" id="ensEmail" placeholder="Adresse e-mail" autocomplete="off">
+    <input type="password" class="login-field" id="ensMotDePasse" placeholder="Mot de passe" autocomplete="off">
+    <div class="login-error" id="ensErreur"></div>
+    <button class="btn btn-primary" onclick="tenterConnexionEnseignant()">Se connecter</button>
+    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="tenterInscriptionEnseignant()">Créer un compte enseignant</button>
+    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="nav(0)">← Retour</button>
+  </div>
+</div>
+
+<!-- ====================================================
+     ÉCRAN ENSEIGNANT : TABLEAU DE BORD (liste des classes)
+===================================================== -->
+<div class="screen" id="sEnsAdmin">
+  <div class="app-title" style="margin-top:40px;">Mes classes</div>
+  <div class="login-box" style="margin-top:24px;max-width:480px;">
+    <div id="listeClasses"></div>
+    <div style="margin-top:20px;">
+      <input type="text" class="login-field" id="nouvelleClasseNom" placeholder="Nom de la classe (ex: CM1-A)">
+      <input type="text" class="login-field" id="nouvelleClasseCode" placeholder="Code de la classe (ex: cm1a2026)">
+      <div class="login-error" id="ensAdminErreur"></div>
+      <button class="btn btn-primary" onclick="creerNouvelleClasse()">+ Créer une classe</button>
+    </div>
+    <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="deconnecterEnseignant()">Déconnexion</button>
+  </div>
+</div>
+
+<!-- ====================================================
+     ÉCRAN ENSEIGNANT : GESTION D'UNE CLASSE (liste des élèves)
+===================================================== -->
+<div class="screen" id="sEnsClasse">
+  <div class="app-title" style="margin-top:40px;" id="ensClasseTitre">Classe</div>
+  <div class="login-box" style="margin-top:24px;max-width:480px;">
+    <div id="listeEleves"></div>
+    <div style="margin-top:20px;">
+      <input type="text" class="login-field" id="nouvelEleveId" placeholder="Identifiant (ex: lea)">
+      <input type="text" class="login-field" id="nouvelElevePrenom" placeholder="Prénom (ex: Léa)">
+      <input type="password" class="login-field" id="nouvelElevePass" placeholder="Mot de passe">
+      <div class="login-error" id="ensClasseErreur"></div>
+      <button class="btn btn-primary" onclick="ajouterNouvelEleve()">+ Ajouter l'élève</button>
+    </div>
+    <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="nav('EnsAdmin')">← Retour aux classes</button>
   </div>
 </div>
 
@@ -1023,6 +1169,143 @@ function deconnecterEleve() {
   window.FirebaseApp.deconnecter();
   eleveConnecte = null;
   nav(0);
+}
+
+// ================================================================
+// ESPACE ENSEIGNANT
+// ================================================================
+let enseignantConnecte = null; // { uid, email }
+let classeOuverte = null;      // { id, nom, codeClasse } — classe actuellement gérée
+
+async function tenterConnexionEnseignant() {
+  const email = document.getElementById('ensEmail').value;
+  const motDePasse = document.getElementById('ensMotDePasse').value;
+  const erreurEl = document.getElementById('ensErreur');
+  erreurEl.textContent = '';
+  if (!email.trim() || !motDePasse) { erreurEl.textContent = 'Remplis les 2 champs.'; return; }
+  try {
+    await window.FirebaseApp.connecterEnseignant(email, motDePasse);
+    // onAuthStateChanged s'occupe de la suite (appelle onEnseignantConnecte)
+  } catch (e) {
+    erreurEl.textContent = "E-mail ou mot de passe incorrect.";
+  }
+}
+
+async function tenterInscriptionEnseignant() {
+  const email = document.getElementById('ensEmail').value;
+  const motDePasse = document.getElementById('ensMotDePasse').value;
+  const erreurEl = document.getElementById('ensErreur');
+  erreurEl.textContent = '';
+  if (!email.trim() || !motDePasse) { erreurEl.textContent = 'Remplis les 2 champs.'; return; }
+  if (motDePasse.length < 6) { erreurEl.textContent = 'Mot de passe : 6 caractères minimum.'; return; }
+  try {
+    await window.FirebaseApp.inscrireEnseignant(email, motDePasse);
+  } catch (e) {
+    erreurEl.textContent = e.code === 'auth/email-already-in-use'
+      ? 'Un compte existe déjà avec cet e-mail — utilise "Se connecter".'
+      : "Impossible de créer le compte (" + (e.code || e.message) + ").";
+  }
+}
+
+window.onEnseignantConnecte = function(user) {
+  enseignantConnecte = { uid: user.uid, email: user.email };
+  nav('EnsAdmin');
+  rafraichirListeClasses();
+};
+
+function deconnecterEnseignant() {
+  window.FirebaseApp.deconnecter();
+  enseignantConnecte = null;
+  classeOuverte = null;
+  nav(0);
+}
+
+async function rafraichirListeClasses() {
+  const conteneur = document.getElementById('listeClasses');
+  conteneur.innerHTML = '<div class="admin-empty">Chargement…</div>';
+  const classes = await window.FirebaseApp.listerClasses(enseignantConnecte.uid);
+  if (classes.length === 0) {
+    conteneur.innerHTML = '<div class="admin-empty">Aucune classe pour l\'instant — crées-en une ci-dessous.</div>';
+    return;
+  }
+  conteneur.innerHTML = '';
+  classes.forEach(c => {
+    const div = document.createElement('div');
+    div.className = 'admin-list-item';
+    div.innerHTML = `<div><div class="nom">${c.nom}</div><div class="detail">code : ${c.codeClasse}</div></div>`;
+    div.onclick = () => ouvrirClasse(c.id, c.nom, c.codeClasse);
+    conteneur.appendChild(div);
+  });
+}
+
+async function creerNouvelleClasse() {
+  const nom = document.getElementById('nouvelleClasseNom').value.trim();
+  const code = document.getElementById('nouvelleClasseCode').value.trim();
+  const erreurEl = document.getElementById('ensAdminErreur');
+  erreurEl.textContent = '';
+  if (!nom || !code) { erreurEl.textContent = 'Remplis le nom et le code de la classe.'; return; }
+  if (!/^[a-zA-Z0-9]+$/.test(code)) { erreurEl.textContent = 'Le code de classe : lettres et chiffres uniquement, sans espace.'; return; }
+  try {
+    await window.FirebaseApp.creerClasse(enseignantConnecte.uid, nom, code);
+    document.getElementById('nouvelleClasseNom').value = '';
+    document.getElementById('nouvelleClasseCode').value = '';
+    rafraichirListeClasses();
+  } catch (e) {
+    erreurEl.textContent = "Impossible de créer la classe.";
+  }
+}
+
+function ouvrirClasse(id, nom, codeClasse) {
+  classeOuverte = { id, nom, codeClasse };
+  document.getElementById('ensClasseTitre').textContent = nom;
+  nav('EnsClasse');
+  rafraichirListeEleves();
+}
+
+async function rafraichirListeEleves() {
+  const conteneur = document.getElementById('listeEleves');
+  conteneur.innerHTML = '<div class="admin-empty">Chargement…</div>';
+  const eleves = await window.FirebaseApp.listerEleves(classeOuverte.id);
+  if (eleves.length === 0) {
+    conteneur.innerHTML = '<div class="admin-empty">Aucun élève pour l\'instant — ajoutes-en un ci-dessous.</div>';
+    return;
+  }
+  conteneur.innerHTML = '';
+  eleves.forEach(e => {
+    const div = document.createElement('div');
+    div.className = 'admin-list-item';
+    div.innerHTML = `<div><div class="nom">${e.prenom}</div><div class="detail">identifiant : ${e.identifiant}</div></div>
+                      <button class="supprimer" title="Retirer l'élève">✕</button>`;
+    div.querySelector('.supprimer').onclick = async (ev) => {
+      ev.stopPropagation();
+      if (confirm(`Retirer ${e.prenom} de la classe ?`)) {
+        await window.FirebaseApp.supprimerEleveDeLaListe(classeOuverte.id, e.id);
+        rafraichirListeEleves();
+      }
+    };
+    conteneur.appendChild(div);
+  });
+}
+
+async function ajouterNouvelEleve() {
+  const identifiant = document.getElementById('nouvelEleveId').value.trim();
+  const prenom = document.getElementById('nouvelElevePrenom').value.trim();
+  const motDePasse = document.getElementById('nouvelElevePass').value;
+  const erreurEl = document.getElementById('ensClasseErreur');
+  erreurEl.textContent = '';
+  if (!identifiant || !prenom || !motDePasse) { erreurEl.textContent = 'Remplis les 3 champs.'; return; }
+  if (motDePasse.length < 6) { erreurEl.textContent = 'Mot de passe : 6 caractères minimum.'; return; }
+  try {
+    await window.FirebaseApp.ajouterEleve(classeOuverte.id, classeOuverte.codeClasse, prenom, identifiant, motDePasse);
+    document.getElementById('nouvelEleveId').value = '';
+    document.getElementById('nouvelElevePrenom').value = '';
+    document.getElementById('nouvelElevePass').value = '';
+    rafraichirListeEleves();
+  } catch (e) {
+    erreurEl.textContent = e.code === 'auth/email-already-in-use'
+      ? 'Cet identifiant est déjà pris dans cette classe.'
+      : "Impossible d'ajouter cet élève.";
+  }
 }
 
 // ================================================================
