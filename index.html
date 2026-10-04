@@ -819,7 +819,7 @@ body.cat-proport { --clr-active: #0652dd; }
 </div>
 
 <!-- ====================================================
-     ÉCRAN ENSEIGNANT : CONNEXION / INSCRIPTION
+     ÉCRAN ENSEIGNANT : CONNEXION
 ===================================================== -->
 <div class="screen" id="sEnsLogin">
   <div class="app-title" style="margin-top:64px;">👩‍🏫 Espace enseignant</div>
@@ -828,8 +828,24 @@ body.cat-proport { --clr-active: #0652dd; }
     <input type="password" class="login-field" id="ensMotDePasse" placeholder="Mot de passe" autocomplete="off">
     <div class="login-error" id="ensErreur"></div>
     <button class="btn btn-primary" onclick="tenterConnexionEnseignant()">Se connecter</button>
-    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="tenterInscriptionEnseignant()">Créer un compte enseignant</button>
+    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="nav('EnsInscription')">Je n'ai pas encore de compte</button>
     <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="nav(0)">← Retour</button>
+  </div>
+</div>
+
+<!-- ====================================================
+     ÉCRAN ENSEIGNANT : CRÉATION DE COMPTE
+     (champs totalement séparés de l'écran de connexion,
+     pour éviter toute confusion entre les deux actions)
+===================================================== -->
+<div class="screen" id="sEnsInscription">
+  <div class="app-title" style="margin-top:64px;">Créer un compte enseignant</div>
+  <div class="login-box" style="margin-top:40px;">
+    <input type="email" class="login-field" id="ensInscriptionEmail" placeholder="Adresse e-mail" autocomplete="off">
+    <input type="password" class="login-field" id="ensInscriptionMotDePasse" placeholder="Choisis un mot de passe" autocomplete="off">
+    <div class="login-error" id="ensInscriptionErreur"></div>
+    <button class="btn btn-primary" onclick="tenterInscriptionEnseignant()">Confirmer la création du compte</button>
+    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="nav('EnsLogin')">← Retour à la connexion</button>
   </div>
 </div>
 
@@ -1193,9 +1209,9 @@ async function tenterConnexionEnseignant() {
 }
 
 async function tenterInscriptionEnseignant() {
-  const email = document.getElementById('ensEmail').value;
-  const motDePasse = document.getElementById('ensMotDePasse').value;
-  const erreurEl = document.getElementById('ensErreur');
+  const email = document.getElementById('ensInscriptionEmail').value;
+  const motDePasse = document.getElementById('ensInscriptionMotDePasse').value;
+  const erreurEl = document.getElementById('ensInscriptionErreur');
   erreurEl.textContent = '';
   if (!email.trim() || !motDePasse) { erreurEl.textContent = 'Remplis les 2 champs.'; return; }
   if (motDePasse.length < 6) { erreurEl.textContent = 'Mot de passe : 6 caractères minimum.'; return; }
@@ -1203,7 +1219,7 @@ async function tenterInscriptionEnseignant() {
     await window.FirebaseApp.inscrireEnseignant(email, motDePasse);
   } catch (e) {
     erreurEl.textContent = e.code === 'auth/email-already-in-use'
-      ? 'Un compte existe déjà avec cet e-mail — utilise "Se connecter".'
+      ? 'Un compte existe déjà avec cet e-mail — reviens en arrière et utilise "Se connecter".'
       : "Impossible de créer le compte (" + (e.code || e.message) + ").";
   }
 }
