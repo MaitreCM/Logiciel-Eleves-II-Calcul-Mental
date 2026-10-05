@@ -736,9 +736,9 @@ body.cat-proport { --clr-active: #0652dd; }
   }
 
   // --- Gestion des classes ---
-  async function creerClasse(enseignantUid, nomClasse, codeClasse) {
+  async function creerClasse(enseignantUid, nomClasse, annee, codeClasse) {
     const ref = await addDoc(collection(db, 'classes'), {
-      nom: nomClasse, codeClasse: codeClasse.trim().toLowerCase(),
+      nom: nomClasse, annee, codeClasse: codeClasse.trim().toLowerCase(),
       enseignantUid, creeLe: new Date().toISOString(),
     });
     return ref.id;
@@ -858,7 +858,7 @@ body.cat-proport { --clr-active: #0652dd; }
     <div id="listeClasses"></div>
     <div style="margin-top:20px;">
       <input type="text" class="login-field" id="nouvelleClasseNom" placeholder="Nom de la classe (ex: CM1-A)">
-      <input type="text" class="login-field" id="nouvelleClasseCode" placeholder="Code de la classe (ex: cm1a2026)">
+      <input type="text" class="login-field" id="nouvelleClasseAnnee" placeholder="Année (ex: 2026-2027)">
       <div class="login-error" id="ensAdminErreur"></div>
       <button class="btn btn-primary" onclick="creerNouvelleClasse()">+ Créer une classe</button>
     </div>
@@ -1240,7 +1240,14 @@ function deconnecterEnseignant() {
 async function rafraichirListeClasses() {
   const conteneur = document.getElementById('listeClasses');
   conteneur.innerHTML = '<div class="admin-empty">Chargement…</div>';
-  const classes = await window.FirebaseApp.listerClasses(enseignantConnecte.uid);
+  let classes;
+  try {
+    classes = await window.FirebaseApp.listerClasses(enseignantConnecte.uid);
+  } catch (e) {
+    console.error('Erreur rafraichirListeClasses:', e);
+    conteneur.innerHTML = `<div class="admin-empty">Erreur de chargement (${e.code || e.message || e}).</div>`;
+    return;
+  }
   if (classes.length === 0) {
     conteneur.innerHTML = '<div class="admin-empty">Aucune classe pour l\'instant — crées-en une ci-dessous.</div>';
     return;
@@ -1249,7 +1256,7 @@ async function rafraichirListeClasses() {
   classes.forEach(c => {
     const div = document.createElement('div');
     div.className = 'admin-list-item';
-    div.innerHTML = `<div><div class="nom">${c.nom}</div><div class="detail">code : ${c.codeClasse}</div></div>`;
+    div.innerHTML = `<div><div class="nom">${c.nom}${c.annee ? ' — ' + c.annee : ''}</div><div class="detail">code élève : ${c.codeClasse}</div></div>`;
     div.onclick = () => ouvrirClasse(c.id, c.nom, c.codeClasse);
     conteneur.appendChild(div);
   });
@@ -1257,18 +1264,31 @@ async function rafraichirListeClasses() {
 
 async function creerNouvelleClasse() {
   const nom = document.getElementById('nouvelleClasseNom').value.trim();
-  const code = document.getElementById('nouvelleClasseCode').value.trim();
+  const annee = document.getElementById('nouvelleClasseAnnee').value.trim();
   const erreurEl = document.getElementById('ensAdminErreur');
   erreurEl.textContent = '';
-  if (!nom || !code) { erreurEl.textContent = 'Remplis le nom et le code de la classe.'; return; }
-  if (!/^[a-zA-Z0-9]+$/.test(code)) { erreurEl.textContent = 'Le code de classe : lettres et chiffres uniquement, sans espace.'; return; }
+  if (!nom || !annee) { erreurEl.textContent = 'Remplis le nom et l\'année de la classe.'; return; }
+
+  // Code interne auto-généré à partir du nom + de l'année (lettres/chiffres
+  // uniquement) : c'est ce code-là que les élèves devront taper pour se
+  // connecter, affiché ensuite dans la liste des classes.
+  const code = (nom + annee).toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!code) { erreurEl.textContent = 'Le nom et l\'année doivent contenir au moins une lettre ou un chiffre.'; return; }
+
+  if (!enseignantConnecte) {
+    erreurEl.textContent = "Erreur interne : session enseignant introuvable. Reconnecte-toi.";
+    console.error('creerNouvelleClasse: enseignantConnecte est null');
+    return;
+  }
+
   try {
-    await window.FirebaseApp.creerClasse(enseignantConnecte.uid, nom, code);
+    await window.FirebaseApp.creerClasse(enseignantConnecte.uid, nom, annee, code);
     document.getElementById('nouvelleClasseNom').value = '';
-    document.getElementById('nouvelleClasseCode').value = '';
+    document.getElementById('nouvelleClasseAnnee').value = '';
     rafraichirListeClasses();
   } catch (e) {
-    erreurEl.textContent = "Impossible de créer la classe.";
+    console.error('Erreur creerNouvelleClasse:', e);
+    erreurEl.textContent = "Impossible de créer la classe (" + (e.code || e.message || e) + ").";
   }
 }
 
