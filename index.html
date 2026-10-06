@@ -778,12 +778,25 @@ body.cat-proport { --clr-active: #0652dd; }
     await deleteDoc(doc(db, 'classes', classeId, 'eleves', eleveId));
   }
 
+  async function supprimerClasse(classeId) {
+    // Supprimer un document Firestore ne supprime pas automatiquement ses
+    // sous-collections : on efface donc d'abord toutes les fiches élèves
+    // de la classe, puis la classe elle-même. (Les comptes Firebase Auth
+    // des élèves, eux, restent créés — même remarque que pour un élève
+    // retiré individuellement.)
+    const eleves = await listerEleves(classeId);
+    for (const e of eleves) {
+      await deleteDoc(doc(db, 'classes', classeId, 'eleves', e.id));
+    }
+    await deleteDoc(doc(db, 'classes', classeId));
+  }
+
   // Exposés pour le reste du programme (script classique, non-module)
   window.FirebaseApp = {
     auth, db, doc, getDoc, setDoc, updateDoc,
     fabriquerEmailEleve, connecterEleve, deconnecter,
     inscrireEnseignant, connecterEnseignant, estCompteEnseignant,
-    creerClasse, listerClasses,
+    creerClasse, listerClasses, supprimerClasse,
     ajouterEleve, listerEleves, supprimerEleveDeLaListe,
   };
 
@@ -1256,7 +1269,20 @@ async function rafraichirListeClasses() {
   classes.forEach(c => {
     const div = document.createElement('div');
     div.className = 'admin-list-item';
-    div.innerHTML = `<div><div class="nom">${c.nom}${c.annee ? ' — ' + c.annee : ''}</div><div class="detail">code élève : ${c.codeClasse}</div></div>`;
+    div.innerHTML = `<div><div class="nom">${c.nom}${c.annee ? ' — ' + c.annee : ''}</div><div class="detail">code élève : ${c.codeClasse}</div></div>
+                      <button class="supprimer" title="Supprimer la classe">✕</button>`;
+    div.querySelector('.supprimer').onclick = async (ev) => {
+      ev.stopPropagation();
+      if (confirm(`Supprimer la classe "${c.nom}" et tous ses élèves ? Cette action est irréversible.`)) {
+        try {
+          await window.FirebaseApp.supprimerClasse(c.id);
+          rafraichirListeClasses();
+        } catch (e) {
+          console.error('Erreur supprimerClasse:', e);
+          alert("Impossible de supprimer la classe (" + (e.code || e.message || e) + ").");
+        }
+      }
+    };
     div.onclick = () => ouvrirClasse(c.id, c.nom, c.codeClasse);
     conteneur.appendChild(div);
   });
