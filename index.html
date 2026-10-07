@@ -814,6 +814,2543 @@ body.cat-proport { --clr-active: #0652dd; }
   });
 </script>
 
+<!-- ====================================================
+     MOTEUR DE GÉNÉRATION DE QUESTIONS (51 sous-compétences, 6 paliers)
+     Exposé en window.MoteurCM — namespacé, ne touche pas au genQ existant
+===================================================== -->
+<script>
+/* =====================================================================
+   GÉNÉRATEUR DE QUESTIONS — CALCUL MENTAL CM1/CM2
+   ---------------------------------------------------------------------
+   Fichier unique regroupant les 6 catégories migrées vers le système à
+   6 paliers : Additions, Soustractions, Multiplications, Divisions,
+   Grandeurs, Estimation. (Suites et Proportionnalité laissées de côté
+   pour le moment, à la demande de l'auteur.)
+
+   STRUCTURE DE CE FICHIER :
+   Chaque catégorie garde sa propre section complète et autonome
+   (utilitaires, config des paliers, générateurs, registre renommé en
+   paliersConfigXxx / generateursXxx). Une section finale fusionne les
+   6 registres en un seul paliersConfig / generateurs global et expose
+   un seul genQ(subCompetenceId, palier) utilisable pour toutes les
+   sous-compétences, quelle que soit leur catégorie.
+
+   Les petites fonctions utilitaires génériques (randInt, genDecimalValue,
+   tirageAvecCondition, formatDecimal, scaleToInt, endsWithOneOf,
+   randMultiple...) sont parfois redéfinies à l'identique dans plusieurs
+   sections ci-dessous : c'est volontaire, pour que chaque section de
+   catégorie reste lisible et copiable isolément. En JavaScript non-strict,
+   une redéclaration de fonction avec `function` écrase silencieusement
+   la précédente sans erreur : comme les implémentations sont identiques
+   partout, ça ne change rien au comportement.
+
+   Total : 6 catégories, 51 sous-compétences, 6 paliers chacune.
+
+   Tout le contenu est enveloppé dans une IIFE (fonction immédiatement
+   exécutée) pour ne RIEN laisser fuiter dans l'espace global — notamment
+   le nom "genQ", qui existe déjà dans le programme principal pour
+   l'ancien système à 4 niveaux. Seul window.MoteurCM est exposé.
+   ===================================================================== */
+
+(function() {
+
+/* =====================================================================
+   MODULE ADDITIONS — un générateur par ligne de la cartographie
+   ---------------------------------------------------------------------
+   12 sous-compétences, 6 paliers chacune. Convention reprise du fichier
+   précédent : paliersConfig (données pures) + generateurs (logique) +
+   dispatcher genQ(subCompetenceId, palier) + validateur de schéma
+   (SANS vérification de progression, comme convenu).
+
+   ✅ DÉCISIONS VALIDÉES :
+   - "retenue: multiple" = 2 retenues OU PLUS ("plusieurs" au sens large).
+   - "multiples de 5 ou 10" utilise un vrai mélange équilibré : ~50% de
+     multiples de 10, ~50% de multiples de 5 stricts (terminant par 5).
+   - Additionner 3 entiers / 4 entiers : seuils identiques confirmés,
+     volontaire (la difficulté vient du nombre de termes, pas de la taille).
+   - Les fractions ne sont jamais simplifiées (num/den affichés tels quels) —
+     à signaler si tu veux que ça change.
+   ===================================================================== */
+
+
+/* ---------------------------------------------------------------------
+   0. UTILITAIRES GÉNÉRIQUES
+   --------------------------------------------------------------------- */
+
+function randInt(min, max) { // inclusif
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function randMultiple(max, base) {
+  // renvoie un multiple de `base`, strictement positif, < max
+  const nbMultiples = Math.floor((max - 1) / base);
+  return randInt(1, Math.max(1, nbMultiples)) * base;
+}
+
+function randMultipleDe5ou10(max) {
+  // mélange équilibré : ~50% multiple de 10, ~50% multiple de 5 STRICT (finit par 5)
+  if (Math.random() < 0.5) {
+    return randMultiple(max, 10);
+  }
+  const nbMultiplesDe5Strict = Math.floor((max - 5) / 10) + 1; // 5, 15, 25, ...
+  const k = randInt(0, Math.max(0, nbMultiplesDe5Strict - 1));
+  return 5 + k * 10;
+}
+
+function countCarries(a, b) {
+  // nombre de retenues lors de a + b (colonne par colonne)
+  let carry = 0, count = 0;
+  const da = String(Math.round(a)).split('').reverse().map(Number);
+  const db = String(Math.round(b)).split('').reverse().map(Number);
+  const len = Math.max(da.length, db.length);
+  for (let i = 0; i < len; i++) {
+    const sum = (da[i] || 0) + (db[i] || 0) + carry;
+    carry = sum >= 10 ? 1 : 0;
+    if (sum >= 10) count++;
+  }
+  return count;
+}
+
+function countCarriesMulti(nums) {
+  let carry = 0, count = 0;
+  const arrs = nums.map(n => String(Math.round(n)).split('').reverse().map(Number));
+  const len = Math.max(...arrs.map(a => a.length));
+  for (let i = 0; i < len; i++) {
+    let total = carry;
+    for (const arr of arrs) total += (arr[i] || 0);
+    carry = Math.floor(total / 10);
+    if (total >= 10) count++;
+  }
+  return count;
+}
+
+function matchesRetenue(carries, retenue) {
+  switch (retenue) {
+    case 'libre':    return true;
+    case 'aucune':   return carries === 0;
+    case 'simple':   return carries === 1;
+    case 'double':   return carries === 2;
+    case 'multiple': return carries >= 2; // "plusieurs" = 2 ou plus
+    default: throw new Error(`retenue inconnue: ${retenue}`);
+  }
+}
+
+function endsWithOneOf(n, chiffres) {
+  return chiffres.includes(n % 10);
+}
+
+function tirageAvecCondition(fabrique, condition, maxEssais = 500) {
+  // rejection sampling avec filet de sécurité pour éviter une boucle infinie
+  let dernier;
+  for (let i = 0; i < maxEssais; i++) {
+    dernier = fabrique();
+    if (condition(dernier)) return dernier;
+  }
+  return dernier; // fallback : on renvoie le dernier tirage même s'il ne matche pas exactement
+}
+
+function formatDecimal(value, decimals) {
+  return value.toFixed(decimals);
+}
+
+function genDecimalValue(max, decimalsOptions) {
+  const decimals = decimalsOptions[randInt(0, decimalsOptions.length - 1)];
+  const scale = Math.pow(10, decimals);
+  const value = randInt(1, max * scale - 1) / scale;
+  return { value, decimals };
+}
+
+function scaleToInt(value, decimals) {
+  return Math.round(value * Math.pow(10, decimals));
+}
+
+function countCarriesDecimal(a, decA, b, decB) {
+  const commonDec = Math.max(decA, decB);
+  return countCarries(scaleToInt(a, commonDec), scaleToInt(b, commonDec));
+}
+
+
+/* ---------------------------------------------------------------------
+   1. CONFIGS — une entrée par sous-compétence, 6 paliers chacune
+   --------------------------------------------------------------------- */
+
+const paliersConfigAdditions = {
+
+  maisonsDesNombres: [
+    { min: 3,  max: 6    },
+    { min: 3,  max: 9    },
+    { min: 3,  max: 10   },
+    { min: 3,  max: 20   },
+    { min: 10, max: 100  },
+    { min: 10, max: 1000 },
+  ],
+
+  complementsNbEntiers: [
+    { cible: 10,   contrainte: 'quelconque'     },
+    { cible: 100,  contrainte: 'multiple10'     },
+    { cible: 1000, contrainte: 'multiple100'    },
+    { cible: 1000, contrainte: 'multiple10ou100'},
+    { cible: 100,  contrainte: 'quelconque'     },
+    { cible: 1000, contrainte: 'quelconque'     },
+  ],
+
+  additionner2Multiples10: [
+    { maxNb: 100,   retenue: 'aucune',   multipleDe: 10 },
+    { maxNb: 1000,  retenue: 'aucune',   multipleDe: 10 },
+    { maxNb: 100,   retenue: 'simple',   multipleDe: 10 },
+    { maxNb: 1000,  retenue: 'simple',   multipleDe: 10 },
+    { maxNb: 1000,  retenue: 'double',   multipleDe: 10 },
+    { maxNb: 10000, retenue: 'multiple', multipleDe: 10 },
+  ],
+
+  additionner2Multiples5ou10: [
+    { maxNb: 100,   retenue: 'aucune',   multipleDe: 'mix5ou10' },
+    { maxNb: 1000,  retenue: 'aucune',   multipleDe: 'mix5ou10' },
+    { maxNb: 100,   retenue: 'simple',   multipleDe: 'mix5ou10' },
+    { maxNb: 1000,  retenue: 'simple',   multipleDe: 'mix5ou10' },
+    { maxNb: 1000,  retenue: 'double',   multipleDe: 'mix5ou10' },
+    { maxNb: 10000, retenue: 'multiple', multipleDe: 'mix5ou10' },
+  ],
+
+  additionner2FinissantPar9: [
+    { nb1Max: 20,   nb2Max: 30,   chiffres: [9], finConstraint: 'nb2'  },
+    { nb1Max: 50,   nb2Max: 50,   chiffres: [9], finConstraint: 'nb2'  },
+    { nb1Max: 100,  nb2Max: 100,  chiffres: [9], finConstraint: 'nb2'  },
+    { nb1Max: 100,  nb2Max: 100,  chiffres: [9], finConstraint: 'both' },
+    { nb1Max: 1000, nb2Max: 1000, chiffres: [9], finConstraint: 'nb2'  },
+    { nb1Max: 1000, nb2Max: 1000, chiffres: [9], finConstraint: 'both' },
+  ],
+
+  additionner2FinissantPar8ou9: [
+    { nb1Max: 20,   nb2Max: 30,   chiffres: [8,9], finConstraint: 'nb2'  },
+    { nb1Max: 50,   nb2Max: 50,   chiffres: [8,9], finConstraint: 'nb2'  },
+    { nb1Max: 100,  nb2Max: 100,  chiffres: [8,9], finConstraint: 'nb2'  },
+    { nb1Max: 100,  nb2Max: 100,  chiffres: [8,9], finConstraint: 'both' },
+    { nb1Max: 1000, nb2Max: 1000, chiffres: [8,9], finConstraint: 'nb2'  },
+    { nb1Max: 1000, nb2Max: 1000, chiffres: [8,9], finConstraint: 'both' },
+  ],
+
+  additionner2Entiers: [
+    { maxNb: 100,   retenue: 'aucune'   },
+    { maxNb: 1000,  retenue: 'aucune'   },
+    { maxNb: 100,   retenue: 'simple'   },
+    { maxNb: 1000,  retenue: 'simple'   },
+    { maxNb: 1000,  retenue: 'double'   },
+    { maxNb: 10000, retenue: 'multiple' },
+  ],
+
+  additionner3Entiers: [
+    { maxNb: 100,  retenue: 'aucune'   },
+    { maxNb: 1000, retenue: 'aucune'   },
+    { maxNb: 100,  retenue: 'simple'   },
+    { maxNb: 1000, retenue: 'simple'   },
+    { maxNb: 1000, retenue: 'double'   },
+    { maxNb: 1000, retenue: 'multiple' },
+  ],
+
+  additionner4Entiers: [
+    { maxNb: 100,  retenue: 'aucune'   },
+    { maxNb: 1000, retenue: 'aucune'   },
+    { maxNb: 100,  retenue: 'simple'   },
+    { maxNb: 1000, retenue: 'simple'   },
+    { maxNb: 1000, retenue: 'double'   },
+    { maxNb: 1000, retenue: 'multiple' },
+  ],
+
+  additionsDecimaux: [
+    { termA: { type: 'entier',  max: 100 },                    termB: { type: 'decimal', max: 100, decimalsOptions: [1,2] }, retenue: 'libre'    },
+    { termA: { type: 'decimal', max: 100, decimalsOptions: [1,2] }, termB: { type: 'decimal', max: 100, decimalsOptions: [1,2] }, retenue: 'aucune'   },
+    { termA: { type: 'decimal', max: 100, decimalsOptions: [1,2] }, termB: { type: 'decimal', max: 100, decimalsOptions: [1,2] }, retenue: 'simple'   },
+    { termA: { type: 'decimal', max: 100, decimalsOptions: [1,2] }, termB: { type: 'decimal', max: 100, decimalsOptions: [1,2] }, retenue: 'multiple' },
+    { termA: { type: 'decimal', max: 100, decimalsOptions: [1,2,3] }, termB: { type: 'decimal', max: 100, decimalsOptions: [1,2,3] }, retenue: 'multiple' },
+    { termA: { type: 'decimal', max: 1000, decimalsOptions: [1,2,3] }, termB: { type: 'decimal', max: 1000, decimalsOptions: [1,2,3] }, retenue: 'multiple' },
+  ],
+
+  additionATrous: [
+    { maxNb: 1000,  retenue: 'aucune',   decimal: false },
+    { maxNb: 1000,  retenue: 'simple',   decimal: false },
+    { maxNb: 1000,  retenue: 'multiple', decimal: false },
+    { maxNb: 100,   retenue: 'aucune',   decimal: true, decimalsOptions: [1,2] },
+    { maxNb: 10000, retenue: 'multiple', decimal: false },
+    { maxNb: 100,   retenue: 'multiple', decimal: true, decimalsOptions: [1,2] },
+  ],
+
+  additionFractions: [
+    { entierMax: null, numMax: 10,  denMax: 10 },
+    { entierMax: null, numMax: 100, denMax: 10 },
+    { entierMax: 10,   numMax: 10,  denMax: 4  },
+    { entierMax: 10,   numMax: 100, denMax: 10 },
+    { entierMax: 20,   numMax: 100, denMax: 10 },
+    { entierMax: 100,  numMax: 100, denMax: 10 },
+  ],
+};
+
+
+/* ---------------------------------------------------------------------
+   2. GÉNÉRATEURS — un par sous-compétence
+   --------------------------------------------------------------------- */
+
+function genMaisonsDesNombres(config) {
+  const { min, max } = config;
+  const cible = randInt(min, max);
+  // "jamais 0 proposé, toujours nombre connu + ..."
+  const connu = randInt(1, cible - 1);
+  const manquant = cible - connu;
+  return { cible, connu, manquant, text: `${connu} + ? = ${cible}`, answer: manquant, noSuffix: true };
+}
+
+function genComplementsNbEntiers(config) {
+  const { cible, contrainte } = config;
+  let n;
+  switch (contrainte) {
+    case 'quelconque':
+      n = randInt(1, cible - 1);
+      break;
+    case 'multiple10':
+      n = randMultiple(cible, 10);
+      break;
+    case 'multiple100':
+      n = randMultiple(cible, 100);
+      break;
+    case 'multiple10ou100': {
+      const base = Math.random() < 0.5 ? 10 : 100;
+      n = randMultiple(cible, base);
+      break;
+    }
+    default: throw new Error(`contrainte inconnue: ${contrainte}`);
+  }
+  const manquant = cible - n;
+  return { text: `${n} + ? = ${cible}`, answer: manquant, noSuffix: true };
+}
+
+function genAdditionSimplePaire(config) {
+  const { maxNb, retenue, multipleDe } = config;
+  const fabrique = () => {
+    let a, b;
+    if (multipleDe === 'mix5ou10') {
+      a = randMultipleDe5ou10(maxNb);
+      b = randMultipleDe5ou10(maxNb);
+    } else if (multipleDe) {
+      a = randMultiple(maxNb, multipleDe);
+      b = randMultiple(maxNb, multipleDe);
+    } else {
+      a = randInt(1, maxNb - 1);
+      b = randInt(1, maxNb - 1);
+    }
+    return { a, b, carries: countCarries(a, b) };
+  };
+  const { a, b } = tirageAvecCondition(fabrique, r => matchesRetenue(r.carries, retenue));
+  return { text: `${a} + ${b}`, answer: a + b };
+}
+
+// Additionner2Multiples10 / Additionner2Multiples5ou10 / Additionner2Entiers
+// partagent tous les trois la même logique -> genAdditionSimplePaire
+
+function genAdditionFinissantPar(config) {
+  const { nb1Max, nb2Max, chiffres, finConstraint } = config;
+  const fabrique = () => {
+    const nb2 = tirageAvecCondition(
+      () => randInt(1, nb2Max - 1),
+      n => endsWithOneOf(n, chiffres)
+    );
+    let nb1;
+    if (finConstraint === 'both') {
+      nb1 = tirageAvecCondition(
+        () => randInt(1, nb1Max - 1),
+        n => endsWithOneOf(n, chiffres)
+      );
+    } else {
+      nb1 = randInt(1, nb1Max - 1);
+    }
+    return { nb1, nb2 };
+  };
+  const { nb1, nb2 } = fabrique();
+  return { text: `${nb1} + ${nb2}`, answer: nb1 + nb2 };
+}
+
+function genAdditionNTermes(nTermes) {
+  return function (config) {
+    const { maxNb, retenue } = config;
+    const fabrique = () => {
+      const termes = Array.from({ length: nTermes }, () => randInt(1, maxNb - 1));
+      return { termes, carries: countCarriesMulti(termes) };
+    };
+    const { termes } = tirageAvecCondition(fabrique, r => matchesRetenue(r.carries, retenue));
+    return { text: termes.join(' + '), answer: termes.reduce((s, n) => s + n, 0) };
+  };
+}
+const genAdditionner3Entiers = genAdditionNTermes(3);
+const genAdditionner4Entiers = genAdditionNTermes(4);
+
+function genAdditionsDecimaux(config) {
+  const { termA, termB, retenue } = config;
+  const tirerTerme = (t) => t.type === 'entier'
+    ? { value: randInt(1, t.max - 1), decimals: 0 }
+    : genDecimalValue(t.max, t.decimalsOptions);
+
+  const fabrique = () => {
+    const a = tirerTerme(termA);
+    const b = tirerTerme(termB);
+    return { a, b, carries: countCarriesDecimal(a.value, a.decimals, b.value, b.decimals) };
+  };
+  const { a, b } = tirageAvecCondition(fabrique, r => matchesRetenue(r.carries, retenue));
+
+  const textA = a.decimals ? formatDecimal(a.value, a.decimals) : String(a.value);
+  const textB = b.decimals ? formatDecimal(b.value, b.decimals) : String(b.value);
+  const somme = Math.round((a.value + b.value) * 1000) / 1000; // arrondi pour éviter les erreurs flottantes
+  return { text: `${textA} + ${textB}`, answer: somme };
+}
+
+function genAdditionATrous(config) {
+  const { maxNb, retenue, decimal, decimalsOptions } = config;
+  if (!decimal) {
+    const fabrique = () => {
+      const a = randInt(1, maxNb - 1);
+      const b = randInt(1, maxNb - 1);
+      return { a, b, carries: countCarries(a, b) };
+    };
+    const { a, b } = tirageAvecCondition(fabrique, r => matchesRetenue(r.carries, retenue));
+    return { text: `${a} + ? = ${a + b}`, answer: b, noSuffix: true };
+  } else {
+    const fabrique = () => {
+      const a = genDecimalValue(maxNb, decimalsOptions);
+      const b = genDecimalValue(maxNb, decimalsOptions);
+      return { a, b, carries: countCarriesDecimal(a.value, a.decimals, b.value, b.decimals) };
+    };
+    const { a, b } = tirageAvecCondition(fabrique, r => matchesRetenue(r.carries, retenue));
+    const somme = Math.round((a.value + b.value) * 1000) / 1000;
+    const textA = formatDecimal(a.value, a.decimals);
+    const textB = formatDecimal(b.value, b.decimals);
+    return { text: `${textA} + ? = ${somme}`, answer: b.value, noSuffix: true };
+  }
+}
+
+function genAdditionFractions(config) {
+  const { entierMax, numMax, denMax } = config;
+  const den = randInt(2, denMax);
+  if (entierMax === null) {
+    const num1 = randInt(1, numMax);
+    const num2 = randInt(1, numMax);
+    return {
+      text: `${num1}/${den} + ${num2}/${den}`,
+      answer: { num: num1 + num2, den },
+      isFrac: true,
+    };
+  } else {
+    const entier = randInt(1, entierMax);
+    const num = randInt(1, numMax);
+    return {
+      text: `${entier} + ${num}/${den}`,
+      answer: { entier, num, den },
+      isFrac: true,
+    };
+  }
+}
+
+
+/* ---------------------------------------------------------------------
+   3. REGISTRE
+   --------------------------------------------------------------------- */
+
+const generateursAdditions = {
+  maisonsDesNombres:            genMaisonsDesNombres,
+  complementsNbEntiers:         genComplementsNbEntiers,
+  additionner2Multiples10:      genAdditionSimplePaire,
+  additionner2Multiples5ou10:   genAdditionSimplePaire,
+  additionner2FinissantPar9:    genAdditionFinissantPar,
+  additionner2FinissantPar8ou9: genAdditionFinissantPar,
+  additionner2Entiers:          genAdditionSimplePaire,
+  additionner3Entiers:          genAdditionner3Entiers,
+  additionner4Entiers:          genAdditionner4Entiers,
+  additionsDecimaux:            genAdditionsDecimaux,
+  additionATrous:               genAdditionATrous,
+  additionFractions:            genAdditionFractions,
+};
+/* =====================================================================
+   MODULE SOUSTRACTIONS — un générateur par ligne de la cartographie
+   ---------------------------------------------------------------------
+   10 sous-compétences, 6 paliers chacune. Même convention que le module
+   Additions : paliersConfig (données) + generateurs (logique) +
+   dispatcher genQ(subCompetenceId, palier) + validateur de schéma.
+
+   Ce fichier est autonome (utilitaires redéfinis) pour pouvoir être
+   testé seul avec `node genQ-soustractions.js`. Une fois les deux
+   modules stabilisés, les utilitaires communs (randInt, randMultiple,
+   genDecimalValue, tirageAvecCondition...) pourront être factorisés
+   dans un fichier `utils.js` partagé.
+
+   ✅ CONVENTIONS REPRISES DES ADDITIONS :
+   - "plusieurs retenues / emprunts" = 2 ou plus.
+   - "multiples de 5 ou 10" = vrai mélange équilibré (10 vs 5 strict).
+
+   ✅ CORRECTION APPLIQUÉE :
+   - "Soustraction ... Multiples de 5 ou 10", palier 6 : corrigé à
+     < 10000 (au lieu de < 100000, coquille par rapport à la ligne
+     "Multiples de 10" juste au-dessus).
+
+   ℹ️ AUTRES POINTS À NOTER :
+   - Contrairement aux additions, cette catégorie n'a que 3 niveaux de
+     retenue ("aucune", "simple", "plusieurs") — pas de "double" séparé,
+     conformément à ta cartographie.
+   - Pour "Finissant par 9 / 8 ou 9", quand seul le 2e terme est
+     contraint, je génère volontairement le 2e terme EN PREMIER puis
+     le 1er terme au moins aussi grand — ça évite d'avoir à échanger
+     les deux nombres après coup (ce qui aurait changé lequel des deux
+     "doit" finir par 9 dans l'exercice affiché).
+   ===================================================================== */
+
+
+/* ---------------------------------------------------------------------
+   0. UTILITAIRES
+   --------------------------------------------------------------------- */
+
+function randInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function randMultiple(max, base) {
+  const nbMultiples = Math.floor((max - 1) / base);
+  return randInt(1, Math.max(1, nbMultiples)) * base;
+}
+
+function randMultipleDe5ou10(max) {
+  if (Math.random() < 0.5) return randMultiple(max, 10);
+  const nbMultiplesDe5Strict = Math.floor((max - 5) / 10) + 1; // 5, 15, 25...
+  const k = randInt(0, Math.max(0, nbMultiplesDe5Strict - 1));
+  return 5 + k * 10;
+}
+
+function countBorrows(a, b) {
+  // nombre d'emprunts pour calculer a - b (a doit être >= b)
+  let borrow = 0, count = 0;
+  const da = String(Math.round(a)).split('').reverse().map(Number);
+  const db = String(Math.round(b)).split('').reverse().map(Number);
+  const len = Math.max(da.length, db.length);
+  for (let i = 0; i < len; i++) {
+    const haut = (da[i] || 0) - borrow;
+    const bas = (db[i] || 0);
+    if (haut < bas) { count++; borrow = 1; } else { borrow = 0; }
+  }
+  return count;
+}
+
+function matchesEmprunt(borrows, type) {
+  switch (type) {
+    case 'aucune':    return borrows === 0;
+    case 'simple':    return borrows === 1;
+    case 'plusieurs': return borrows >= 2;
+    case 'unOuDeux':  return borrows >= 1 && borrows <= 2;
+    default: throw new Error(`type d'emprunt inconnu: ${type}`);
+  }
+}
+
+function endsWithOneOf(n, chiffres) {
+  return chiffres.includes(n % 10);
+}
+
+function tirageAvecCondition(fabrique, condition, maxEssais = 500) {
+  let dernier;
+  for (let i = 0; i < maxEssais; i++) {
+    dernier = fabrique();
+    if (condition(dernier)) return dernier;
+  }
+  return dernier;
+}
+
+function formatDecimal(value, decimals) {
+  return value.toFixed(decimals);
+}
+
+function genDecimalValue(max, decimalsOptions) {
+  const decimals = decimalsOptions[randInt(0, decimalsOptions.length - 1)];
+  const scale = Math.pow(10, decimals);
+  const value = randInt(1, Math.max(1, max * scale - 1)) / scale;
+  return { value, decimals };
+}
+
+function scaleToInt(value, decimals) {
+  return Math.round(value * Math.pow(10, decimals));
+}
+
+
+/* ---------------------------------------------------------------------
+   1. CONFIGS
+   --------------------------------------------------------------------- */
+
+const paliersConfigSoustractions = {
+
+  soustraction2Multiples10: [
+    { maxNb: 100,   retenue: 'aucune',    multipleDe: 10 },
+    { maxNb: 1000,  retenue: 'aucune',    multipleDe: 10 },
+    { maxNb: 100,   retenue: 'simple',    multipleDe: 10 },
+    { maxNb: 1000,  retenue: 'simple',    multipleDe: 10 },
+    { maxNb: 1000,  retenue: 'plusieurs', multipleDe: 10 },
+    { maxNb: 10000, retenue: 'plusieurs', multipleDe: 10 },
+  ],
+
+  soustraction2Multiples5ou10: [
+    { maxNb: 100,    retenue: 'aucune',    multipleDe: 'mix5ou10' },
+    { maxNb: 1000,   retenue: 'aucune',    multipleDe: 'mix5ou10' },
+    { maxNb: 100,    retenue: 'simple',    multipleDe: 'mix5ou10' },
+    { maxNb: 1000,   retenue: 'simple',    multipleDe: 'mix5ou10' },
+    { maxNb: 1000,   retenue: 'plusieurs', multipleDe: 'mix5ou10' },
+    { maxNb: 10000,  retenue: 'plusieurs', multipleDe: 'mix5ou10' },
+  ],
+
+  soustractionFinissantPar9: [
+    { nb1Max: 50,   nb2Max: null,   chiffres: [9], finConstraint: 'fixed' },
+    { nb1Max: 50,   nb2Max: 50,     chiffres: [9], finConstraint: 'nb2'   },
+    { nb1Max: 100,  nb2Max: 100,    chiffres: [9], finConstraint: 'nb2'   },
+    { nb1Max: 100,  nb2Max: 100,    chiffres: [9], finConstraint: 'both'  },
+    { nb1Max: 1000, nb2Max: 1000,   chiffres: [9], finConstraint: 'nb2'   },
+    { nb1Max: 1000, nb2Max: 1000,   chiffres: [9], finConstraint: 'both'  },
+  ],
+
+  soustractionFinissantPar8ou9: [
+    { nb1Max: 50,   nb2Max: null,   chiffres: [8,9], finConstraint: 'fixed' },
+    { nb1Max: 50,   nb2Max: 50,     chiffres: [8,9], finConstraint: 'nb2'   },
+    { nb1Max: 100,  nb2Max: 100,    chiffres: [8,9], finConstraint: 'nb2'   },
+    { nb1Max: 100,  nb2Max: 100,    chiffres: [8,9], finConstraint: 'both'  },
+    { nb1Max: 1000, nb2Max: 1000,   chiffres: [8,9], finConstraint: 'nb2'   },
+    { nb1Max: 1000, nb2Max: 1000,   chiffres: [8,9], finConstraint: 'both'  },
+  ],
+
+  soustraire1EntierA1: [
+    { maxA: 100,   retenue: 'aucune'    },
+    { maxA: 1000,  retenue: 'aucune'    },
+    { maxA: 100,   retenue: 'simple'    },
+    { maxA: 1000,  retenue: 'simple'    },
+    { maxA: 1000,  retenue: 'plusieurs' },
+    { maxA: 10000, retenue: 'plusieurs' },
+  ],
+
+  soustraire2EntiersA1: [
+    { maxA: 100,   retenue: 'aucune'    },
+    { maxA: 1000,  retenue: 'aucune'    },
+    { maxA: 100,   retenue: 'simple'    },
+    { maxA: 1000,  retenue: 'simple'    },
+    { maxA: 1000,  retenue: 'plusieurs' },
+    { maxA: 10000, retenue: 'plusieurs' },
+  ],
+
+  soustraire3EntiersA1: [
+    { maxA: 100,   retenue: 'aucune'    },
+    { maxA: 1000,  retenue: 'aucune'    },
+    { maxA: 100,   retenue: 'simple'    },
+    { maxA: 1000,  retenue: 'simple'    },
+    { maxA: 1000,  retenue: 'plusieurs' },
+    { maxA: 10000, retenue: 'plusieurs' },
+  ],
+
+  soustractionsDecimaux: [
+    { mode: 'decDecMemeDecimales', max: 10,  decimalsOptions: [1,2],       retenue: 'aucune'    },
+    { mode: 'decDecMemeDecimales', max: 10,  decimalsOptions: [1,2],       retenue: 'unOuDeux'  },
+    { mode: 'entierMoinsDecimal',  maxEntier: 10,  decimalsOptions: [1,2]                       },
+    { mode: 'entierMoinsDecimal',  maxEntier: 100, decimalsOptions: [1,2]                       },
+    { mode: 'mixte', max: 100, decimalsOptions: [0,1,2],   retenue: 'plusieurs'                 },
+    { mode: 'mixte', max: 100, decimalsOptions: [0,1,2,3], retenue: 'plusieurs'                 },
+  ],
+
+  equationATrousSoustraction: [
+    { maxNb: 1000,  retenue: 'aucune',    decimal: false },
+    { maxNb: 1000,  retenue: 'simple',    decimal: false },
+    { maxNb: 1000,  retenue: 'plusieurs', decimal: false },
+    { maxNb: 100,   retenue: 'aucune',    decimal: true, decimalsOptions: [1,2] },
+    { maxNb: 10000, retenue: 'plusieurs', decimal: false },
+    { maxNb: 100,   retenue: 'plusieurs', decimal: true, decimalsOptions: [1,2] },
+  ],
+
+  soustractionFractions: [
+    { entierMax: null, numMax: 10,  denMax: 10 },
+    { entierMax: null, numMax: 100, denMax: 10 },
+    { entierMax: 10,   numMax: 10,  denMax: 4  },
+    { entierMax: 10,   numMax: 100, denMax: 10 },
+    { entierMax: 20,   numMax: 100, denMax: 10 },
+    { entierMax: 100,  numMax: 100, denMax: 10 },
+  ],
+};
+
+
+/* ---------------------------------------------------------------------
+   2. GÉNÉRATEURS
+   --------------------------------------------------------------------- */
+
+function genSoustractionSimplePaire(config) {
+  const { maxNb, retenue, multipleDe } = config;
+  const tirer = () => multipleDe === 'mix5ou10' ? randMultipleDe5ou10(maxNb)
+                     : multipleDe ? randMultiple(maxNb, multipleDe)
+                     : randInt(1, maxNb - 1);
+  const fabrique = () => {
+    let a = tirer(), b = tirer();
+    if (b > a) [a, b] = [b, a];
+    return { a, b, borrows: countBorrows(a, b) };
+  };
+  const { a, b } = tirageAvecCondition(fabrique, r => matchesEmprunt(r.borrows, retenue));
+  return { text: `${a} - ${b}`, answer: a - b };
+}
+// utilisé par soustraction2Multiples10 et soustraction2Multiples5ou10
+
+function genSoustractionFinissantPar(config) {
+  const { nb1Max, nb2Max, chiffres, finConstraint } = config;
+
+  if (finConstraint === 'fixed') {
+    const nb2 = chiffres[randInt(0, chiffres.length - 1)];
+    const nb1 = randInt(nb2 + 1, nb1Max - 1);
+    return { text: `${nb1} - ${nb2}`, answer: nb1 - nb2 };
+  }
+
+  if (finConstraint === 'nb2') {
+    // le 2e terme (contraint) est tiré en premier, puis le 1er terme
+    // est choisi au moins aussi grand : pas besoin d'échanger ensuite.
+    const nb2 = tirageAvecCondition(() => randInt(1, nb2Max - 1), n => endsWithOneOf(n, chiffres));
+    const nb1 = randInt(Math.min(nb2, nb1Max - 1), nb1Max - 1);
+    return { text: `${nb1} - ${nb2}`, answer: nb1 - nb2 };
+  }
+
+  // finConstraint === 'both'
+  const nb2 = tirageAvecCondition(() => randInt(1, nb2Max - 1), n => endsWithOneOf(n, chiffres));
+  const nb1 = tirageAvecCondition(
+    () => randInt(Math.min(nb2, nb1Max - 1), nb1Max - 1),
+    n => endsWithOneOf(n, chiffres)
+  );
+  return { text: `${nb1} - ${nb2}`, answer: nb1 - nb2 };
+}
+
+function genSoustractionNTermes(nTermes) {
+  return function (config) {
+    const { maxA, retenue } = config;
+    const fabrique = () => {
+      const a = randInt(nTermes + 1, maxA - 1);
+      const termes = [];
+      let reste = a;
+      for (let i = 0; i < nTermes; i++) {
+        const t = randInt(1, Math.max(1, reste - 1));
+        termes.push(t);
+        reste -= t;
+      }
+      const sommeTermes = termes.reduce((s, n) => s + n, 0);
+      return { a, termes, borrows: countBorrows(a, sommeTermes) };
+    };
+    const { a, termes } = tirageAvecCondition(fabrique, r => matchesEmprunt(r.borrows, retenue));
+    return { text: `${a} - ${termes.join(' - ')}`, answer: a - termes.reduce((s, n) => s + n, 0) };
+  };
+}
+const genSoustraire1EntierA1 = genSoustractionNTermes(1);
+const genSoustraire2EntiersA1 = genSoustractionNTermes(2);
+const genSoustraire3EntiersA1 = genSoustractionNTermes(3);
+
+function genSoustractionsDecimaux(config) {
+  const { mode } = config;
+
+  if (mode === 'decDecMemeDecimales') {
+    const { max, decimalsOptions, retenue } = config;
+    const fabrique = () => {
+      const decimals = decimalsOptions[randInt(0, decimalsOptions.length - 1)];
+      let a = genDecimalValue(max, [decimals]).value;
+      let b = genDecimalValue(max, [decimals]).value;
+      if (b > a) [a, b] = [b, a];
+      const borrows = countBorrows(scaleToInt(a, decimals), scaleToInt(b, decimals));
+      return { a, b, decimals, borrows };
+    };
+    const { a, b, decimals } = tirageAvecCondition(fabrique, r => matchesEmprunt(r.borrows, retenue));
+    const answer = Math.round((a - b) * Math.pow(10, decimals)) / Math.pow(10, decimals);
+    return { text: `${formatDecimal(a, decimals)} - ${formatDecimal(b, decimals)}`, answer };
+  }
+
+  if (mode === 'entierMoinsDecimal') {
+    const { maxEntier, decimalsOptions } = config;
+    const a = randInt(2, maxEntier - 1);
+    const { value: b, decimals } = genDecimalValue(a, decimalsOptions); // b < a par construction
+    const answer = Math.round((a - b) * Math.pow(10, decimals)) / Math.pow(10, decimals);
+    return { text: `${a} - ${formatDecimal(b, decimals)}`, answer };
+  }
+
+  if (mode === 'mixte') {
+    const { max, decimalsOptions, retenue } = config;
+    const fabrique = () => {
+      const decA = decimalsOptions[randInt(0, decimalsOptions.length - 1)];
+      const decB = decimalsOptions[randInt(0, decimalsOptions.length - 1)];
+      let a = decA === 0 ? randInt(1, max - 1) : genDecimalValue(max, [decA]).value;
+      let b = decB === 0 ? randInt(1, max - 1) : genDecimalValue(max, [decB]).value;
+      if (b > a) [a, b] = [b, a];
+      const commonDec = Math.max(decA, decB);
+      const borrows = countBorrows(scaleToInt(a, commonDec), scaleToInt(b, commonDec));
+      return { a, b, decA, decB, borrows };
+    };
+    const { a, b, decA, decB } = tirageAvecCondition(fabrique, r => matchesEmprunt(r.borrows, retenue));
+    const commonDec = Math.max(decA, decB);
+    const answer = Math.round((a - b) * Math.pow(10, commonDec)) / Math.pow(10, commonDec);
+    const textA = decA === 0 ? String(a) : formatDecimal(a, decA);
+    const textB = decB === 0 ? String(b) : formatDecimal(b, decB);
+    return { text: `${textA} - ${textB}`, answer };
+  }
+
+  throw new Error(`mode inconnu: ${mode}`);
+}
+
+function genEquationATrousSoustraction(config) {
+  const { maxNb, retenue, decimal, decimalsOptions } = config;
+
+  if (!decimal) {
+    const fabrique = () => {
+      const a = randInt(2, maxNb - 1);
+      const b = randInt(1, a - 1);
+      return { a, b, borrows: countBorrows(a, b) };
+    };
+    const { a, b } = tirageAvecCondition(fabrique, r => matchesEmprunt(r.borrows, retenue));
+    return { text: `${a} - ? = ${a - b}`, answer: b, noSuffix: true };
+  }
+
+  const fabrique = () => {
+    const decimals = decimalsOptions[randInt(0, decimalsOptions.length - 1)];
+    const a = genDecimalValue(maxNb, [decimals]).value;
+    const b = genDecimalValue(a, [decimals]).value; // b < a par construction
+    return { a, b, decimals, borrows: countBorrows(scaleToInt(a, decimals), scaleToInt(b, decimals)) };
+  };
+  const { a, b, decimals } = tirageAvecCondition(fabrique, r => matchesEmprunt(r.borrows, retenue));
+  const diff = Math.round((a - b) * Math.pow(10, decimals)) / Math.pow(10, decimals);
+  return { text: `${formatDecimal(a, decimals)} - ? = ${formatDecimal(diff, decimals)}`, answer: b, noSuffix: true };
+}
+
+function genSoustractionFractions(config) {
+  const { entierMax, numMax, denMax } = config;
+  const den = randInt(2, denMax);
+
+  if (entierMax === null) {
+    let num1 = randInt(1, numMax);
+    let num2 = randInt(1, numMax);
+    if (num2 > num1) [num1, num2] = [num2, num1];
+    return { text: `${num1}/${den} - ${num2}/${den}`, answer: { num: num1 - num2, den }, isFrac: true };
+  }
+
+  const entier = randInt(1, entierMax);
+  const numMaxPossible = Math.min(numMax, entier * den); // garantit fraction <= entier
+  const num = randInt(1, Math.max(1, numMaxPossible));
+  return { text: `${entier} - ${num}/${den}`, answer: { entier, num, den }, isFrac: true };
+}
+
+
+/* ---------------------------------------------------------------------
+   3. REGISTRE
+   --------------------------------------------------------------------- */
+
+const generateursSoustractions = {
+  soustraction2Multiples10:      genSoustractionSimplePaire,
+  soustraction2Multiples5ou10:   genSoustractionSimplePaire,
+  soustractionFinissantPar9:     genSoustractionFinissantPar,
+  soustractionFinissantPar8ou9:  genSoustractionFinissantPar,
+  soustraire1EntierA1:           genSoustraire1EntierA1,
+  soustraire2EntiersA1:          genSoustraire2EntiersA1,
+  soustraire3EntiersA1:          genSoustraire3EntiersA1,
+  soustractionsDecimaux:         genSoustractionsDecimaux,
+  equationATrousSoustraction:    genEquationATrousSoustraction,
+  soustractionFractions:         genSoustractionFractions,
+};
+/* =====================================================================
+   MODULE MULTIPLICATIONS — un générateur par ligne de la cartographie
+   ---------------------------------------------------------------------
+   10 sous-compétences, 6 paliers chacune. Même convention que les
+   modules Additions / Soustractions : paliersConfig (données) +
+   generateurs (logique) + dispatcher genQ(subCompetenceId, palier) +
+   validateur de schéma.
+
+   ⚠️ HYPOTHÈSE DE SIMPLIFICATION SUR LE COMPTAGE DES RETENUES :
+   Pour une multiplication, une "retenue" est comptée à chaque fois que
+   le produit d'un chiffre (colonne par colonne, comme dans l'algorithme
+   posé) dépasse 9. Pour "2 chiffres × 2 chiffres", je compte les
+   retenues générées dans CHAQUE ligne de produit partiel (celle du
+   chiffre des unités, puis celle du chiffre des dizaines), mais PAS
+   celles qui pourraient apparaître en additionnant ensuite ces deux
+   lignes décalées entre elles. C'est une simplification : à valider
+   si tu veux un comptage 100% fidèle à l'algorithme posé complet.
+
+   ℹ️ AUTRES POINTS TRANSCRITS TELS QUELS (déjà confirmés "pas d'erreur"
+   dans notre échange précédent) :
+   - "×5/×25/×50" et "×9 ou ×11" : structure "ou" recopiée telle quelle.
+   - "Équation à trou – multiplication" a exactement les mêmes seuils
+     que "Multiplications variées – entiers" dans ta cartographie —
+     transcrit à l'identique, je n'ai donc écrit qu'une config et je
+     réutilise ses valeurs pour les deux lignes.
+   ===================================================================== */
+
+
+/* ---------------------------------------------------------------------
+   0. UTILITAIRES
+   --------------------------------------------------------------------- */
+
+function randInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function tirageAvecCondition(fabrique, condition, maxEssais = 500) {
+  let dernier;
+  for (let i = 0; i < maxEssais; i++) {
+    dernier = fabrique();
+    if (condition(dernier)) return dernier;
+  }
+  return dernier;
+}
+
+function formatDecimal(value, decimals) {
+  return value.toFixed(decimals);
+}
+
+function genDecimalValue(max, decimalsOptions) {
+  const decimals = decimalsOptions[randInt(0, decimalsOptions.length - 1)];
+  const scale = Math.pow(10, decimals);
+  const value = randInt(1, Math.max(1, max * scale - 1)) / scale;
+  return { value, decimals };
+}
+
+function scaleToInt(value, decimals) {
+  return Math.round(value * Math.pow(10, decimals));
+}
+
+// Nombre de retenues pour multiplier l'entier `a` par un CHIFFRE (0-9)
+function countCarriesMultiplicationDigit(a, chiffre) {
+  let carry = 0, count = 0;
+  const da = String(a).split('').reverse().map(Number);
+  for (let i = 0; i < da.length; i++) {
+    const produit = da[i] * chiffre + carry;
+    carry = Math.floor(produit / 10);
+    if (produit >= 10) count++;
+  }
+  return count;
+}
+
+// Nombre de retenues pour multiplier l'entier `a` par l'entier `b`
+// (b peut avoir plusieurs chiffres : on somme les retenues de chaque
+// ligne de produit partiel — cf. hypothèse en tête de fichier)
+function countCarriesMultiplication(a, b) {
+  const db = String(b).split('').reverse().map(Number);
+  let total = 0;
+  for (const chiffre of db) total += countCarriesMultiplicationDigit(a, chiffre);
+  return total;
+}
+
+function matchesRetenueMult(carries, type) {
+  switch (type) {
+    case 'aucune':       return carries === 0;
+    case 'simple':       return carries === 1;
+    case 'plusieurs':    return carries >= 2;
+    case 'avecRetenues': return carries >= 1;
+    default: throw new Error(`type de retenue inconnu: ${type}`);
+  }
+}
+
+
+/* ---------------------------------------------------------------------
+   1. CONFIGS
+   --------------------------------------------------------------------- */
+
+const configTables = [
+  { tables: [2,3,4],                         facteurMax: 9 },
+  { tables: [5,6,7],                         facteurMax: 9 },
+  { tables: [8,9],                           facteurMax: 9 },
+  { tables: [2,3,4,5,6,7,8,9],               facteurMax: 9 },
+  { tables: [11,12],                         facteurMax: 9 },
+  { tables: [2,3,4,5,6,7,8,9,11,12],         facteurMax: 9 },
+];
+
+const configMultiplicationsVarieesEntiers = [
+  { aRange: [10,99],   bRange: [2,9],   retenue: 'aucune'    },
+  { aRange: [100,999], bRange: [2,9],   retenue: 'aucune'    },
+  { aRange: [10,99],   bRange: [2,9],   retenue: 'simple'    },
+  { aRange: [100,999], bRange: [2,9],   retenue: 'plusieurs' },
+  { aRange: [10,99],   bRange: [11,19], retenue: 'plusieurs' },
+  { aRange: [10,99],   bRange: [10,99], retenue: 'plusieurs' },
+];
+
+const paliersConfigMultiplications = {
+
+  tablesMultiplication:       configTables,
+  tablesMultiplicationATrou:  configTables,
+
+  multiplierPar10_100_1000: [
+    { type: 'entier',  max: 1000, multiplicateurs: [10]              },
+    { type: 'entier',  max: 1000, multiplicateurs: [100,1000]        },
+    { type: 'decimal', max: 100,  decimalsOptions: [2],       multiplicateurs: [10,100]             },
+    { type: 'decimal', max: 100,  decimalsOptions: [1,2],     multiplicateurs: [10,100,1000]        },
+    { type: 'decimal', max: 100,  decimalsOptions: [1,2,3],   multiplicateurs: [10,100,1000,10000]  },
+    { type: 'decimal', max: 1000, decimalsOptions: [1,2,3,4], multiplicateurs: [10,100,1000,10000]  },
+  ],
+
+  doubler: [
+    { multiplicateur: 2, options: [{ type: 'entier', max: 20 }] },
+    { multiplicateur: 2, options: [{ type: 'entier', max: 50 }] },
+    { multiplicateur: 2, options: [{ type: 'entier', max: 100 }] },
+    { multiplicateur: 2, options: [{ type: 'decimal', max: 100, decimalsOptions: [1,2] }] },
+    { multiplicateur: 2, options: [{ type: 'entier', max: 1000 }, { type: 'decimal', max: 100, decimalsOptions: [1,2] }] },
+    { multiplicateur: 2, options: [{ type: 'entier', max: 1000 }, { type: 'decimal', max: 100, decimalsOptions: [1,2,3,4] }] },
+  ],
+
+  quadrupler: [
+    { multiplicateur: 4, options: [{ type: 'entier', max: 10 }] },
+    { multiplicateur: 4, options: [{ type: 'entier', max: 25 }] },
+    { multiplicateur: 4, options: [{ type: 'entier', max: 50 }] },
+    { multiplicateur: 4, options: [{ type: 'decimal', max: 25, decimalsOptions: [1] }] },
+    { multiplicateur: 4, options: [{ type: 'entier', max: 50 },  { type: 'decimal', max: 50,  decimalsOptions: [1,2] }] },
+    { multiplicateur: 4, options: [{ type: 'entier', max: 100 }, { type: 'decimal', max: 100, decimalsOptions: [1,2] }] },
+  ],
+
+  multiplier5_25_50: [
+    { variants: [{ op: 5, max: 20 }] },
+    { variants: [{ op: 5, max: 100 }] },
+    { variants: [{ op: 25, max: 10 }, { op: 50, max: 20 }] },
+    { variants: [{ op: 5, max: 1000 }, { op: 50, max: 100 }, { op: 25, max: 10 }] },
+    { variants: [{ op: 5, max: 1000 }, { op: 25, max: 100 }, { op: 50, max: 100 }] },
+    { variants: [{ op: 5, max: 1000 }, { op: 25, max: 1000 }, { op: 50, max: 1000 }] },
+  ],
+
+  multiplier9ou11: [
+    { variants: [{ op: 9,  max: 50 }] },
+    { variants: [{ op: 11, max: 50 }] },
+    { variants: [{ op: 9, max: 50 },   { op: 11, max: 50 }] },
+    { variants: [{ op: 9, max: 100 },  { op: 11, max: 100 }] },
+    { variants: [{ op: 9, max: 1000 }, { op: 11, max: 1000 }] },
+    { variants: [{ op: 9, max: 10000 },{ op: 11, max: 10000 }] },
+  ],
+
+  multiplicationsVarieesEntiers: configMultiplicationsVarieesEntiers,
+  equationATrousMultiplication:  configMultiplicationsVarieesEntiers, // seuils identiques, cf. note en tête de fichier
+
+  multiplicationsVarieesDecimaux: [
+    { mode: 'fixeMultiplicateur', aMax: 100,  multiplicateurs: [0.1]      },
+    { mode: 'fixeMultiplicateur', aMax: 1000, multiplicateurs: [0.1,0.01] },
+    { mode: 'decimalFoisEntier', aMax: 10,  decimalsOptions: [1,2], bRange: [2,9],   retenue: 'aucune'       },
+    { mode: 'decimalFoisEntier', aMax: 10,  decimalsOptions: [1,2], bRange: [2,9],   retenue: 'avecRetenues' },
+    { mode: 'decimalFoisEntier', aMax: 100, decimalsOptions: [1,2], bRange: [2,9],   retenue: 'avecRetenues' },
+    { mode: 'decimalFoisEntier', aMax: 10,  decimalsOptions: [1,2], bRange: [10,99], retenue: 'avecRetenues' },
+  ],
+};
+
+
+/* ---------------------------------------------------------------------
+   2. GÉNÉRATEURS
+   --------------------------------------------------------------------- */
+
+function genTableMultiplication(config) {
+  const { tables, facteurMax } = config;
+  const table = tables[randInt(0, tables.length - 1)];
+  const facteur = randInt(1, facteurMax);
+  // convention : le numéro de table toujours en premier
+  return { text: `${table} × ${facteur}`, answer: table * facteur };
+}
+
+function genTableMultiplicationATrou(config) {
+  const { tables, facteurMax } = config;
+  const table = tables[randInt(0, tables.length - 1)];
+  const facteur = randInt(1, facteurMax);
+  return { text: `${table} × ? = ${table * facteur}`, answer: facteur, noSuffix: true };
+}
+
+function genMultiplierPar10_100_1000(config) {
+  const { type, max, decimalsOptions, multiplicateurs } = config;
+  const multiplicateur = multiplicateurs[randInt(0, multiplicateurs.length - 1)];
+  if (type === 'entier') {
+    const a = randInt(1, max - 1);
+    return { text: `${a} × ${multiplicateur}`, answer: a * multiplicateur };
+  }
+  const { value, decimals } = genDecimalValue(max, decimalsOptions);
+  const produit = Math.round(value * multiplicateur * 1e6) / 1e6;
+  return { text: `${formatDecimal(value, decimals)} × ${multiplicateur}`, answer: produit };
+}
+
+function genMultiplierParConstante(config) {
+  const { multiplicateur, options } = config;
+  const mode = options[randInt(0, options.length - 1)];
+  let nombre, decimals = 0;
+  if (mode.type === 'entier') {
+    nombre = randInt(1, mode.max - 1);
+  } else {
+    const d = genDecimalValue(mode.max, mode.decimalsOptions);
+    nombre = d.value; decimals = d.decimals;
+  }
+  const produit = Math.round(nombre * multiplicateur * 1e6) / 1e6;
+  const texteNombre = decimals ? formatDecimal(nombre, decimals) : String(nombre);
+  return { text: `${texteNombre} × ${multiplicateur}`, answer: produit };
+}
+// utilisé par "doubler" (multiplicateur:2) et "quadrupler" (multiplicateur:4)
+
+function genMultiplicationVariantes(config) {
+  const { variants } = config;
+  const v = variants[randInt(0, variants.length - 1)];
+  const nombre = randInt(1, v.max - 1);
+  return { text: `${nombre} × ${v.op}`, answer: nombre * v.op };
+}
+// utilisé par "×5/×25/×50" et "×9 ou ×11"
+
+function genMultiplicationsVarieesEntiers(config) {
+  const { aRange, bRange, retenue } = config;
+  const fabrique = () => {
+    const a = randInt(aRange[0], aRange[1]);
+    const b = randInt(bRange[0], bRange[1]);
+    return { a, b, carries: countCarriesMultiplication(a, b) };
+  };
+  const { a, b } = tirageAvecCondition(fabrique, r => matchesRetenueMult(r.carries, retenue));
+  return { text: `${a} × ${b}`, answer: a * b };
+}
+
+function genEquationATrousMultiplication(config) {
+  const { aRange, bRange, retenue } = config;
+  const fabrique = () => {
+    const a = randInt(aRange[0], aRange[1]);
+    const b = randInt(bRange[0], bRange[1]);
+    return { a, b, carries: countCarriesMultiplication(a, b) };
+  };
+  const { a, b } = tirageAvecCondition(fabrique, r => matchesRetenueMult(r.carries, retenue));
+  return { text: `${a} × ? = ${a * b}`, answer: b, noSuffix: true };
+}
+
+function genMultiplicationsVarieesDecimaux(config) {
+  if (config.mode === 'fixeMultiplicateur') {
+    const { aMax, multiplicateurs } = config;
+    const a = randInt(1, aMax - 1);
+    const m = multiplicateurs[randInt(0, multiplicateurs.length - 1)];
+    const produit = Math.round(a * m * 1e6) / 1e6;
+    return { text: `${a} × ${m}`, answer: produit };
+  }
+  // mode === 'decimalFoisEntier'
+  const { aMax, decimalsOptions, bRange, retenue } = config;
+  const fabrique = () => {
+    const { value: a, decimals } = genDecimalValue(aMax, decimalsOptions);
+    const b = randInt(bRange[0], bRange[1]);
+    const aScaled = scaleToInt(a, decimals);
+    return { a, decimals, b, carries: countCarriesMultiplication(aScaled, b) };
+  };
+  const { a, decimals, b } = tirageAvecCondition(fabrique, r => matchesRetenueMult(r.carries, retenue));
+  const produit = Math.round(a * b * 1e6) / 1e6;
+  return { text: `${formatDecimal(a, decimals)} × ${b}`, answer: produit };
+}
+
+
+/* ---------------------------------------------------------------------
+   3. REGISTRE
+   --------------------------------------------------------------------- */
+
+const generateursMultiplications = {
+  tablesMultiplication:            genTableMultiplication,
+  tablesMultiplicationATrou:       genTableMultiplicationATrou,
+  multiplierPar10_100_1000:        genMultiplierPar10_100_1000,
+  doubler:                         genMultiplierParConstante,
+  quadrupler:                      genMultiplierParConstante,
+  multiplier5_25_50:               genMultiplicationVariantes,
+  multiplier9ou11:                 genMultiplicationVariantes,
+  multiplicationsVarieesEntiers:   genMultiplicationsVarieesEntiers,
+  equationATrousMultiplication:    genEquationATrousMultiplication,
+  multiplicationsVarieesDecimaux:  genMultiplicationsVarieesDecimaux,
+};
+/* =====================================================================
+   MODULE DIVISIONS — un générateur par ligne de la cartographie
+   ---------------------------------------------------------------------
+   7 sous-compétences, 6 paliers chacune. Même convention que les
+   modules précédents : paliersConfig (données) + generateurs (logique)
+   + dispatcher genQ(subCompetenceId, palier) + validateur de schéma.
+
+   ℹ️ RAPPEL DES DÉCISIONS DÉJÀ PRISES DANS NOS ÉCHANGES PRÉCÉDENTS
+   (transcrites telles quelles, pas de "correction silencieuse") :
+   - "Quart" inclut bien 0,75 aux paliers 5-6 (correction que tu avais
+     ajoutée dans ton .odt).
+   - "÷5/÷25/÷50" est transcrit tel quel (tu avais confirmé qu'il n'y a
+     pas d'erreur, malgré le palier 3 qui repasse à ÷5 seul).
+   - "÷10/÷100/÷1000", palier 5 : confirmé "résultat entier ou décimal"
+     (comme le palier 4 et le palier 6 de la même ligne).
+   - "Nombre décimal ÷2 ou ÷4" garde sa structure alternée (un seul des
+     deux diviseurs par palier), comme dans ta cartographie.
+
+   ⚠️ HYPOTHÈSE SUR "Divisions par des nombres décimaux" :
+   ta cartographie ne borne jamais la taille du DIVISEUR décimal
+   lui-même (seulement son nombre de décimales). J'ai choisi un diviseur
+   toujours < 10, ce qui me semblait raisonnable niveau CM1/CM2 — à
+   ajuster si tu avais une autre borne en tête.
+   ===================================================================== */
+
+
+/* ---------------------------------------------------------------------
+   0. UTILITAIRES
+   --------------------------------------------------------------------- */
+
+function randInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function tirageAvecCondition(fabrique, condition, maxEssais = 500) {
+  let dernier;
+  for (let i = 0; i < maxEssais; i++) {
+    dernier = fabrique();
+    if (condition(dernier)) return dernier;
+  }
+  return dernier;
+}
+
+function formatDecimal(value, decimals) {
+  return value.toFixed(decimals);
+}
+
+function genDecimalValue(max, decimalsOptions) {
+  const decimals = decimalsOptions[randInt(0, decimalsOptions.length - 1)];
+  const scale = Math.pow(10, decimals);
+  const value = randInt(1, Math.max(1, max * scale - 1)) / scale;
+  return { value, decimals };
+}
+
+function chiffrePair() {
+  return [0, 2, 4, 6, 8][randInt(0, 4)];
+}
+
+
+/* ---------------------------------------------------------------------
+   1. CONFIGS
+   --------------------------------------------------------------------- */
+
+const paliersConfigDivisions = {
+
+  moitie: [
+    { max: 20,    parite: 'pair'         },
+    { max: 50,    parite: 'pair'         },
+    { max: 50,    parite: 'pairOuImpair' },
+    { max: 200,   parite: 'pairOuImpair' },
+    { max: 1000,  parite: 'pairOuImpair' },
+    { max: 10000, parite: 'pairOuImpair' },
+  ],
+
+  quart: [
+    { max: 20,    restesAutorises: [0]       },
+    { max: 50,    restesAutorises: [0]       },
+    { max: 50,    restesAutorises: [0,2]     },
+    { max: 200,   restesAutorises: [0,2]     },
+    { max: 1000,  restesAutorises: [0,1,2,3] },
+    { max: 10000, restesAutorises: [0,1,2,3] },
+  ],
+
+  diviserPar10_100_1000: [
+    { min: 1, max: 100,    diviseurs: [10],        resultat: 'entier'                          },
+    { min: 1, max: 10000,  diviseurs: [10],        resultat: 'entier'                          },
+    { min: 1, max: 100000, diviseurs: [10,100,1000], resultat: 'entier'                        },
+    { min: 1, max: 1000,   diviseurs: [10,100],    resultat: 'entierOuDecimal'                 },
+    { min: 1, max: 100,    diviseurs: [10,100,1000], resultat: 'entierOuDecimal'                 },
+    { min: 1, max: 100,    diviseurs: [10,100,1000], resultat: 'entierOuDecimalDecimales', decimalsOptions: [1,2] },
+  ],
+
+  diviser5_25_50: [
+    { diviseurs: [5],        resultatMax: 10   },
+    { diviseurs: [5,25,50],  resultatMax: 5    },
+    { diviseurs: [5],        resultatMax: 100  },
+    { diviseurs: [5,25,50],  resultatMax: 30   },
+    { diviseurs: [5,25,50],  resultatMax: 100  },
+    { diviseurs: [5,25,50],  resultatMax: 1000 },
+  ],
+
+  divisionQuotientReste: [
+    { maxDividende: 100,   diviseurRange: [2,99], quotientMax: null, avecReste: false },
+    { maxDividende: 1000,  diviseurRange: null,   quotientMax: 10,   avecReste: false },
+    { maxDividende: 100,   diviseurRange: [2,99], quotientMax: null, avecReste: true  },
+    { maxDividende: 1000,  diviseurRange: null,   quotientMax: 10,   avecReste: true  },
+    { maxDividende: 1000,  diviseurRange: null,   quotientMax: 20,   avecReste: true  },
+    { maxDividende: 10000, diviseurRange: null,   quotientMax: 20,   avecReste: true  },
+  ],
+
+  diviserPar2ou4: [
+    { diviseur: 2, mode: 'uniteEtDecimalePaires', max: 10 },
+    { diviseur: 4, mode: 'resultatDecimalesN',    max: 20, decimalesResultat: [1]   },
+    { diviseur: 2, mode: 'decimalePaire',         max: 10 },
+    { diviseur: 4, mode: 'resultatDecimalesN',    max: 20, decimalesResultat: [1,2] },
+    { diviseur: 2, mode: 'decimalLibre',          max: 10, decimalsOptions: [1,2]   },
+    { diviseur: 4, mode: 'decimalLibre',          max: 20, decimalsOptions: [1,2]   },
+  ],
+
+  diviserParDecimal: [
+    { diviseurFixe: 0.5, quotientMax: 10 },
+    { maxDividende: 20,  decimalsOptionsDiviseur: [1],   forceDixieme5: true,  quotientMax: 10 },
+    { maxDividende: 20,  decimalsOptionsDiviseur: [1],   forceDixieme5: false, quotientMax: 10 },
+    { maxDividende: 20,  decimalsOptionsDiviseur: [1,2], forceDixieme5: false, quotientMax: 10 },
+    { maxDividende: 100, decimalsOptionsDiviseur: [1,2], forceDixieme5: false, quotientMax: 10 },
+    { maxDividende: 100, decimalsOptionsDiviseur: [1,2], forceDixieme5: false, quotientMax: 20 },
+  ],
+};
+
+
+/* ---------------------------------------------------------------------
+   2. GÉNÉRATEURS
+   --------------------------------------------------------------------- */
+
+function genMoitie(config) {
+  const { max, parite } = config;
+  let n;
+  if (parite === 'pair') {
+    n = randInt(1, Math.floor((max - 1) / 2)) * 2;
+  } else {
+    n = randInt(2, max - 1);
+  }
+  return { text: `${n} ÷ 2`, answer: n / 2 };
+}
+
+function genQuart(config) {
+  const { max, restesAutorises } = config;
+  const reste = restesAutorises[randInt(0, restesAutorises.length - 1)];
+  const qMax = Math.max(1, Math.floor((max - 1 - reste) / 4));
+  const q = randInt(1, qMax);
+  const n = q * 4 + reste;
+  return { text: `${n} ÷ 4`, answer: n / 4 };
+}
+
+function genDiviserPar10_100_1000(config) {
+  const { min = 1, max, diviseurs, resultat, decimalsOptions } = config;
+  const diviseur = diviseurs[randInt(0, diviseurs.length - 1)];
+
+  if (resultat === 'entier') {
+    const quotientMax = Math.max(1, Math.floor((max - 1) / diviseur));
+    const quotientMin = Math.max(1, Math.ceil(min / diviseur));
+    const quotient = randInt(quotientMin, Math.max(quotientMin, quotientMax));
+    const dividende = quotient * diviseur;
+    return { text: `${dividende} ÷ ${diviseur}`, answer: quotient };
+  }
+
+  if (resultat === 'entierOuDecimal') {
+    const dividende = randInt(min, max - 1);
+    const quotient = Math.round((dividende / diviseur) * 1000) / 1000;
+    return { text: `${dividende} ÷ ${diviseur}`, answer: quotient };
+  }
+
+  // 'entierOuDecimalDecimales' : dividende entier OU décimal à 1-2 décimales
+  const estDecimal = Math.random() < 0.5;
+  let dividende, decimals = 0;
+  if (estDecimal) {
+    const d = genDecimalValue(max, decimalsOptions);
+    dividende = d.value; decimals = d.decimals;
+  } else {
+    dividende = randInt(min, max - 1);
+  }
+  const quotient = Math.round((dividende / diviseur) * 1000) / 1000;
+  const texte = decimals ? formatDecimal(dividende, decimals) : String(dividende);
+  return { text: `${texte} ÷ ${diviseur}`, answer: quotient };
+}
+
+function genDiviser5_25_50(config) {
+  const { diviseurs, resultatMax } = config;
+  const diviseur = diviseurs[randInt(0, diviseurs.length - 1)];
+  const quotient = randInt(1, resultatMax - 1);
+  return { text: `${quotient * diviseur} ÷ ${diviseur}`, answer: quotient };
+}
+
+function genDivisionQuotientReste(config) {
+  const { maxDividende, diviseurRange, quotientMax, avecReste } = config;
+  let diviseur, quotient;
+
+  if (diviseurRange) {
+    diviseur = randInt(diviseurRange[0], diviseurRange[1]);
+    const qMax = Math.max(1, Math.floor((maxDividende - 1) / diviseur));
+    quotient = randInt(1, qMax);
+  } else {
+    quotient = randInt(1, quotientMax - 1);
+    const diviseurMax = Math.max(2, Math.floor((maxDividende - 1) / quotient));
+    diviseur = randInt(2, diviseurMax);
+  }
+
+  let reste = avecReste ? randInt(1, diviseur - 1) : 0;
+  let dividende = quotient * diviseur + reste;
+  if (dividende >= maxDividende) { // filet de sécurité si le tirage dépasse la borne
+    dividende -= diviseur;
+    quotient -= 1;
+  }
+  return { text: `${dividende} ÷ ${diviseur}`, answer: { quotient, reste }, isDual: true };
+}
+
+function genDiviserPar2ou4(config) {
+  const { diviseur, mode, max } = config;
+
+  if (mode === 'uniteEtDecimalePaires') {
+    let n;
+    do {
+      const unite = chiffrePair();
+      const decimale = chiffrePair();
+      n = unite + decimale / 10;
+    } while (n <= 0 || n >= max);
+    return { text: `${n.toFixed(1)} ÷ ${diviseur}`, answer: Math.round((n / diviseur) * 100) / 100 };
+  }
+
+  if (mode === 'decimalePaire') {
+    let n;
+    do {
+      const unite = randInt(0, 9);
+      const decimale = chiffrePair();
+      n = unite + decimale / 10;
+    } while (n <= 0 || n >= max);
+    return { text: `${n.toFixed(1)} ÷ ${diviseur}`, answer: Math.round((n / diviseur) * 100) / 100 };
+  }
+
+  if (mode === 'resultatDecimalesN') {
+    const { decimalesResultat } = config;
+    const decimals = decimalesResultat[randInt(0, decimalesResultat.length - 1)];
+    let q, n;
+    do {
+      q = genDecimalValue(Math.ceil((max - 1) / diviseur) + 1, [decimals]).value;
+      n = Math.round(q * diviseur * 100) / 100;
+    } while (n <= 0 || n >= max);
+    return { text: `${n} ÷ ${diviseur}`, answer: q };
+  }
+
+  // mode === 'decimalLibre'
+  const { decimalsOptions } = config;
+  const { value: n, decimals } = genDecimalValue(max, decimalsOptions);
+  const answer = Math.round((n / diviseur) * 10000) / 10000;
+  return { text: `${formatDecimal(n, decimals)} ÷ ${diviseur}`, answer };
+}
+
+function genDiviserParDecimal(config) {
+  const { diviseurFixe, maxDividende, decimalsOptionsDiviseur, forceDixieme5, quotientMax } = config;
+
+  if (diviseurFixe) {
+    const quotient = randInt(1, quotientMax - 1);
+    const dividende = Math.round(quotient * diviseurFixe * 100) / 100;
+    return { text: `${dividende} ÷ ${diviseurFixe}`, answer: quotient };
+  }
+
+  const fabrique = () => {
+    const quotient = randInt(1, quotientMax - 1);
+    const diviseur = forceDixieme5
+      ? randInt(1, 9) + 0.5
+      : genDecimalValue(10, decimalsOptionsDiviseur).value; // borne du diviseur < 10, cf. remarque en tête de fichier
+    const dividende = Math.round(quotient * diviseur * 100) / 100;
+    return { quotient, diviseur, dividende };
+  };
+  const { quotient, diviseur, dividende } = tirageAvecCondition(
+    fabrique, r => r.dividende > 0 && r.dividende < maxDividende
+  );
+  return { text: `${dividende} ÷ ${diviseur}`, answer: quotient };
+}
+
+
+/* ---------------------------------------------------------------------
+   3. REGISTRE
+   --------------------------------------------------------------------- */
+
+const generateursDivisions = {
+  moitie:                  genMoitie,
+  quart:                   genQuart,
+  diviserPar10_100_1000:   genDiviserPar10_100_1000,
+  diviser5_25_50:          genDiviser5_25_50,
+  divisionQuotientReste:   genDivisionQuotientReste,
+  diviserPar2ou4:          genDiviserPar2ou4,
+  diviserParDecimal:       genDiviserParDecimal,
+};
+/* =====================================================================
+   MODULE GRANDEURS — un générateur par ligne de la cartographie
+   ---------------------------------------------------------------------
+   7 sous-compétences : Longueurs, Masses, Contenances, Durées (conver-
+   sions), Durées entre 2 heures, Durées (opérations), Monnaie – rendu.
+
+   ✅ CORRECTION APPLIQUÉE (palier 6 des chaînes de conversion) :
+   "nbs déc à 1/2/3 décimales + nbs entiers" — chaque partie (grande ou
+   petite unité) est tirée indépendamment, entière OU décimale (1 à 3
+   décimales), plutôt que de forcer les deux parties à être décimales
+   en même temps.
+
+   ℹ️ AUTRES HYPOTHÈSES DE SIMPLIFICATION :
+   - Pour "Longueurs / Masses / Contenances" et pour "Durées opérations",
+     les opérandes des additions/soustractions composites sont
+     reconstruits à partir d'un RÉSULTAT tiré en premier (dans les
+     bornes demandées), ce qui garantit mathématiquement un résultat
+     toujours valide — plutôt que de tirer les opérandes d'abord et
+     risquer de devoir rejeter beaucoup de tirages.
+   - Contenances garde sa 4e relation (l ↔ ml) en plus des 3 relations
+     "de chaîne", comme déjà confirmé dans nos échanges précédents.
+   ===================================================================== */
+
+
+/* ---------------------------------------------------------------------
+   0. UTILITAIRES
+   --------------------------------------------------------------------- */
+
+function randInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function tirageAvecCondition(fabrique, condition, maxEssais = 500) {
+  let dernier;
+  for (let i = 0; i < maxEssais; i++) {
+    dernier = fabrique();
+    if (condition(dernier)) return dernier;
+  }
+  return dernier;
+}
+
+function genDecimalValue(max, decimalsOptions) {
+  const decimals = decimalsOptions[randInt(0, decimalsOptions.length - 1)];
+  const scale = Math.pow(10, decimals);
+  const value = randInt(1, Math.max(1, max * scale - 1)) / scale;
+  return { value, decimals };
+}
+
+function formatComposite(relation, grande, petite) {
+  return `${grande} ${relation.grande} ${petite} ${relation.petite}`;
+}
+
+
+/* ---------------------------------------------------------------------
+   1. LONGUEURS / MASSES / CONTENANCES — relations + config + générateur
+   --------------------------------------------------------------------- */
+
+const relationsLongueurs = {
+  km_m:  { grande: 'km', petite: 'm',  facteur: 1000 },
+  m_cm:  { grande: 'm',  petite: 'cm', facteur: 100  },
+  cm_mm: { grande: 'cm', petite: 'mm', facteur: 10   },
+};
+
+const relationsMasses = {
+  T_kg:  { grande: 'T',  petite: 'kg', facteur: 1000 },
+  kg_g:  { grande: 'kg', petite: 'g',  facteur: 1000 },
+  g_mg:  { grande: 'g',  petite: 'mg', facteur: 1000 },
+};
+
+const relationsContenances = {
+  m3_l:  { grande: 'm3', petite: 'l',  facteur: 1000 },
+  l_cl:  { grande: 'l',  petite: 'cl', facteur: 100  },
+  cl_ml: { grande: 'cl', petite: 'ml', facteur: 10   },
+  l_ml:  { grande: 'l',  petite: 'ml', facteur: 1000 }, // relation supplémentaire (cf. remarque)
+};
+
+function genGrandeurChaine(config, relations) {
+  const { shape, variantes } = config;
+  const v = variantes[randInt(0, variantes.length - 1)];
+  const relation = relations[v.relationId];
+
+  if (shape === 'simple') {
+    const valeur = randInt(1, 9); // entier < 10
+    return { text: `${valeur} ${relation.grande} = ? ${relation.petite}`, answer: valeur * relation.facteur, noSuffix: true };
+  }
+
+  if (shape === 'decomposition') {
+    const valeur = randInt(1, v.limite - 1);
+    const grandePart = Math.floor(valeur / relation.facteur);
+    const petitePart = valeur % relation.facteur;
+    return {
+      text: `${valeur} ${relation.petite} = ? ${relation.grande} ? ${relation.petite}`,
+      answer: { grande: grandePart, petite: petitePart },
+      isDual: true, noSuffix: true,
+    };
+  }
+
+  if (shape === 'soustraction') {
+    const { grandeMax, petiteMax } = v;
+    const resultGrande = randInt(0, grandeMax - 1);
+    const resultPetite = randInt(0, Math.min(petiteMax, relation.facteur) - 1);
+    const resultTotal = resultGrande * relation.facteur + resultPetite;
+    const operandeGrande = randInt(resultGrande + 1, grandeMax + 5);
+    const operandePetite = operandeGrande * relation.facteur - resultTotal;
+    return {
+      text: `${operandeGrande} ${relation.grande} - ${operandePetite} ${relation.petite}`,
+      answer: { grande: resultGrande, petite: resultPetite },
+      isDual: true,
+    };
+  }
+
+  if (shape === 'additionSimpleComposite') {
+    const { grandeMax, petiteMax } = v;
+    const fabrique = () => {
+      const resultGrande = randInt(0, grandeMax - 1);
+      const resultPetite = randInt(0, Math.min(petiteMax, relation.facteur) - 1);
+      const resultTotal = resultGrande * relation.facteur + resultPetite;
+      const op1Grande = randInt(0, resultGrande);
+      const op1Petite = randInt(0, relation.facteur - 1);
+      const op1Total = op1Grande * relation.facteur + op1Petite;
+      const op2 = resultTotal - op1Total;
+      return { resultGrande, resultPetite, op1Grande, op1Petite, op2 };
+    };
+    const r = tirageAvecCondition(fabrique, x => x.op2 >= 0);
+    return {
+      text: `${r.op1Grande} ${relation.grande} ${r.op1Petite} ${relation.petite} + ${r.op2} ${relation.petite}`,
+      answer: { grande: r.resultGrande, petite: r.resultPetite },
+      isDual: true,
+    };
+  }
+
+  // shape === 'additionCompositeComposite'
+  const { grandeMax, petiteMax, decimalsOptions } = v;
+  const tirer = (max) => {
+    if (!decimalsOptions) return randInt(0, max - 1);
+    const d = decimalsOptions[randInt(0, decimalsOptions.length - 1)];
+    return d === 0 ? randInt(0, max - 1) : genDecimalValue(max, [d]).value;
+  };
+  const fabrique = () => {
+    const resultGrande = tirer(grandeMax);
+    const resultPetite = tirer(Math.min(petiteMax, relation.facteur));
+    const resultTotal = resultGrande * relation.facteur + resultPetite;
+    const op1Grande = tirer(Math.max(1, Math.floor(resultGrande) + 1));
+    const op1Petite = tirer(relation.facteur);
+    const op1Total = op1Grande * relation.facteur + op1Petite;
+    const op2Total = Math.round((resultTotal - op1Total) * 100) / 100;
+    return { resultGrande, resultPetite, op1Grande, op1Petite, op2Total };
+  };
+  const r = tirageAvecCondition(fabrique, x => x.op2Total >= 0);
+  const op2Grande = Math.floor(r.op2Total / relation.facteur);
+  const op2Petite = Math.round((r.op2Total - op2Grande * relation.facteur) * 100) / 100;
+  return {
+    text: `${r.op1Grande} ${relation.grande} ${r.op1Petite} ${relation.petite} + ${op2Grande} ${relation.grande} ${op2Petite} ${relation.petite}`,
+    answer: { grande: r.resultGrande, petite: r.resultPetite },
+    isDual: true,
+  };
+}
+
+function creerGenerateurChaine(relations) {
+  return (config) => genGrandeurChaine(config, relations);
+}
+
+
+/* ---------------------------------------------------------------------
+   2. DURÉES — relations + générateurs dédiés
+   --------------------------------------------------------------------- */
+
+const relationsDureesConversions = {
+  jour_heure: { grande: 'jour', petite: 'heure', facteur: 24 },
+  heure_min:  { grande: 'heure', petite: 'min',  facteur: 60 },
+  min_s:      { grande: 'min',  petite: 's',     facteur: 60 },
+};
+
+function genDureesConversions(config) {
+  const { variantes } = config; // chaque variante porte son propre "shape"
+  const v = variantes[randInt(0, variantes.length - 1)];
+
+  if (v.shape === 'decompositionTriple') {
+    const valeur = randInt(1, v.limite - 1);
+    const h = Math.floor(valeur / 3600);
+    const reste = valeur % 3600;
+    const m = Math.floor(reste / 60);
+    const s = reste % 60;
+    return { text: `${valeur} s = ? h ? min ? s`, answer: { heures: h, minutes: m, secondes: s }, isDual: true, noSuffix: true };
+  }
+
+  const relation = relationsDureesConversions[v.relationId];
+
+  if (v.shape === 'simple') {
+    const valeur = randInt(1, v.limiteEntier - 1);
+    return { text: `${valeur} ${relation.grande} = ? ${relation.petite}`, answer: valeur * relation.facteur, noSuffix: true };
+  }
+
+  // v.shape === 'decompositionDouble'
+  const valeur = randInt(1, v.limite - 1);
+  const grandePart = Math.floor(valeur / relation.facteur);
+  const petitePart = valeur % relation.facteur;
+  return {
+    text: `${valeur} ${relation.petite} = ? ${relation.grande} ? ${relation.petite}`,
+    answer: { grande: grandePart, petite: petitePart },
+    isDual: true, noSuffix: true,
+  };
+}
+
+function tirerMinute(mode) {
+  switch (mode) {
+    case 'rien':         return 0;
+    case 'demiOuQuart':  return [0,15,30,45][randInt(0,3)];
+    case 'multiple5':    return randInt(0,11) * 5;
+    case 'quelconque':   return randInt(0,59);
+    default: throw new Error(`mode minute inconnu: ${mode}`);
+  }
+}
+
+function genDureesEntre2Heures(config) {
+  const { max, modeDebut, modeFin, secondes } = config;
+  const fabrique = () => {
+    const hDebut = randInt(0, max - 1);
+    const mDebut = tirerMinute(modeDebut);
+    const sDebut = secondes ? randInt(0,59) : 0;
+    const hFin = randInt(0, max - 1);
+    const mFin = tirerMinute(modeFin);
+    const sFin = secondes ? randInt(0,59) : 0;
+    const totalDebut = hDebut*3600 + mDebut*60 + sDebut;
+    const totalFin = hFin*3600 + mFin*60 + sFin;
+    return { hDebut, mDebut, sDebut, hFin, mFin, sFin, totalDebut, totalFin };
+  };
+  const r = tirageAvecCondition(fabrique, x => x.totalFin > x.totalDebut);
+  const diff = r.totalFin - r.totalDebut;
+  const hDiff = Math.floor(diff / 3600);
+  const mDiff = Math.floor((diff % 3600) / 60);
+  const sDiff = diff % 60;
+
+  const fmt = (h,m,s) => secondes
+    ? `${h}h${String(m).padStart(2,'0')}min${String(s).padStart(2,'0')}s`
+    : `${h}h${String(m).padStart(2,'0')}`;
+
+  const answer = secondes ? { heures: hDiff, minutes: mDiff, secondes: sDiff } : { heures: hDiff, minutes: mDiff };
+  return {
+    text: `De ${fmt(r.hDebut, r.mDebut, r.sDebut)} à ${fmt(r.hFin, r.mFin, r.sFin)}, combien de temps s'est écoulé ?`,
+    answer, isDual: true,
+  };
+}
+
+const relationsDureesOperations = {
+  h_min:   { grande: 'h',   petite: 'min', facteur: 60 },
+  min_sec: { grande: 'min', petite: 'sec', facteur: 60 },
+};
+
+function genDureesOperations(config) {
+  const { shape, variantes } = config;
+
+  if (shape === 'additionTripleHMS' || shape === 'soustractionTripleHMS') {
+    const { maxH } = variantes[0];
+    const resultH = randInt(0, maxH - 1);
+    const resultM = randInt(0, 59);
+    const resultS = randInt(0, 59);
+    const resultTotal = resultH*3600 + resultM*60 + resultS;
+    const toHMS = (total) => ({ h: Math.floor(total/3600), m: Math.floor((total%3600)/60), s: total%60 });
+    const fmt = (hms) => `${hms.h}h${String(hms.m).padStart(2,'0')}min${String(hms.s).padStart(2,'0')}s`;
+
+    if (shape === 'additionTripleHMS') {
+      const op1Total = randInt(0, resultTotal);
+      const op2Total = resultTotal - op1Total;
+      return {
+        text: `${fmt(toHMS(op1Total))} + ${fmt(toHMS(op2Total))}`,
+        answer: { heures: resultH, minutes: resultM, secondes: resultS }, isDual: true,
+      };
+    }
+    const op2Total = randInt(0, 86399 - resultTotal);
+    const op1Total = resultTotal + op2Total;
+    return {
+      text: `${fmt(toHMS(op1Total))} - ${fmt(toHMS(op2Total))}`,
+      answer: { heures: resultH, minutes: resultM, secondes: resultS }, isDual: true,
+    };
+  }
+
+  const v = variantes[randInt(0, variantes.length - 1)];
+  const relation = relationsDureesOperations[v.relationId];
+  const { grandeMax, petiteMax } = v;
+
+  if (shape === 'soustraction') {
+    const resultGrande = randInt(0, grandeMax - 1);
+    const resultPetite = randInt(0, Math.min(petiteMax, relation.facteur) - 1);
+    const resultTotal = resultGrande*relation.facteur + resultPetite;
+    const operandeGrande = randInt(resultGrande + 1, grandeMax + 5);
+    const operandePetite = operandeGrande*relation.facteur - resultTotal;
+    return {
+      text: `${operandeGrande} ${relation.grande} - ${operandePetite} ${relation.petite}`,
+      answer: { grande: resultGrande, petite: resultPetite }, isDual: true,
+    };
+  }
+
+  if (shape === 'additionCompositeComposite') {
+    const { forcerDepassement } = v;
+    const fabrique = () => {
+      let op1Petite, op2Petite;
+      if (forcerDepassement) {
+        op1Petite = randInt(1, relation.facteur - 1);
+        op2Petite = randInt(relation.facteur - op1Petite, relation.facteur - 1);
+      } else {
+        op1Petite = randInt(0, relation.facteur - 1);
+        op2Petite = randInt(0, relation.facteur - 1 - op1Petite);
+      }
+      const op1Grande = randInt(0, Math.max(0, Math.floor(grandeMax/2) - 1));
+      const op2Grande = randInt(0, Math.max(0, Math.floor(grandeMax/2) - 1));
+      const totalPetite = op1Petite + op2Petite;
+      const resultGrande = op1Grande + op2Grande + Math.floor(totalPetite / relation.facteur);
+      const resultPetite = totalPetite % relation.facteur;
+      return { op1Grande, op1Petite, op2Grande, op2Petite, resultGrande, resultPetite };
+    };
+    const r = tirageAvecCondition(fabrique, x => x.resultGrande < grandeMax);
+    return {
+      text: `${formatComposite(relation, r.op1Grande, r.op1Petite)} + ${formatComposite(relation, r.op2Grande, r.op2Petite)}`,
+      answer: { grande: r.resultGrande, petite: r.resultPetite }, isDual: true,
+    };
+  }
+
+  // shape === 'soustractionCompositeComposite'
+  const fabrique = () => {
+    const resultGrande = randInt(0, grandeMax - 1);
+    const resultPetite = randInt(0, Math.min(petiteMax, relation.facteur) - 1);
+    const resultTotal = resultGrande*relation.facteur + resultPetite;
+    const op2Grande = randInt(0, grandeMax - 1);
+    const op2Petite = randInt(0, relation.facteur - 1);
+    const op2Total = op2Grande*relation.facteur + op2Petite;
+    const op1Total = resultTotal + op2Total;
+    return {
+      op1Grande: Math.floor(op1Total/relation.facteur), op1Petite: op1Total % relation.facteur,
+      op2Grande, op2Petite, resultGrande, resultPetite,
+    };
+  };
+  const r = tirageAvecCondition(fabrique, x => x.op1Grande < grandeMax + 10);
+  return {
+    text: `${formatComposite(relation, r.op1Grande, r.op1Petite)} - ${formatComposite(relation, r.op2Grande, r.op2Petite)}`,
+    answer: { grande: r.resultGrande, petite: r.resultPetite }, isDual: true,
+  };
+}
+
+
+/* ---------------------------------------------------------------------
+   3. MONNAIE — rendu
+   --------------------------------------------------------------------- */
+
+function genMonnaieRendu(config) {
+  const { billet, prixMax, nbArticles, centimes } = config;
+  const tirerPrix = () => {
+    const euros = randInt(0, prixMax - 1);
+    const cents = centimes === 'multiple10' ? randInt(0,9) * 10 : randInt(0,99);
+    return Math.round((euros + cents / 100) * 100) / 100;
+  };
+  const fabrique = () => {
+    const prix = Array.from({ length: nbArticles }, tirerPrix);
+    const total = Math.round(prix.reduce((s,p) => s+p, 0) * 100) / 100;
+    return { prix, total };
+  };
+  const { prix, total } = tirageAvecCondition(fabrique, r => r.total < billet && r.total > 0);
+  const rendu = Math.round((billet - total) * 100) / 100;
+  const texteArticles = prix.map(p => `${p.toFixed(2)} €`).join(' + ');
+  return { text: `Je paie avec un billet de ${billet} € un achat de ${texteArticles}. Combien me rend-on ?`, answer: rendu };
+}
+
+
+/* ---------------------------------------------------------------------
+   4. CONFIGS
+   --------------------------------------------------------------------- */
+
+const paliersConfigGrandeurs = {
+
+  longueurs: [
+    { shape: 'simple', variantes: [{ relationId:'km_m' }, { relationId:'m_cm' }, { relationId:'cm_mm' }] },
+    { shape: 'decomposition', variantes: [
+      { relationId:'km_m', limite:5000 }, { relationId:'m_cm', limite:500 }, { relationId:'cm_mm', limite:50 },
+    ]},
+    { shape: 'soustraction', variantes: [
+      { relationId:'km_m', grandeMax:10, petiteMax:1000 },
+      { relationId:'m_cm', grandeMax:10, petiteMax:100 },
+      { relationId:'cm_mm', grandeMax:10, petiteMax:10 },
+    ]},
+    { shape: 'additionSimpleComposite', variantes: [
+      { relationId:'km_m', grandeMax:100, petiteMax:1000 },
+      { relationId:'m_cm', grandeMax:100, petiteMax:100 },
+      { relationId:'cm_mm', grandeMax:100, petiteMax:10 },
+    ]},
+    { shape: 'additionCompositeComposite', variantes: [
+      { relationId:'km_m', grandeMax:100, petiteMax:1000 },
+      { relationId:'m_cm', grandeMax:100, petiteMax:100 },
+      { relationId:'cm_mm', grandeMax:100, petiteMax:10 },
+    ]},
+    { shape: 'additionCompositeComposite', variantes: [
+      { relationId:'km_m', grandeMax:100, petiteMax:1000, decimalsOptions:[0,1,2,3] },
+      { relationId:'m_cm', grandeMax:100, petiteMax:100, decimalsOptions:[0,1,2,3] },
+      { relationId:'cm_mm', grandeMax:100, petiteMax:10, decimalsOptions:[0,1,2,3] },
+    ]},
+  ],
+
+  masses: [
+    { shape: 'simple', variantes: [{ relationId:'T_kg' }, { relationId:'kg_g' }, { relationId:'g_mg' }] },
+    { shape: 'decomposition', variantes: [
+      { relationId:'T_kg', limite:5000 }, { relationId:'kg_g', limite:5000 }, { relationId:'g_mg', limite:5000 },
+    ]},
+    { shape: 'soustraction', variantes: [
+      { relationId:'T_kg', grandeMax:10, petiteMax:1000 },
+      { relationId:'kg_g', grandeMax:10, petiteMax:1000 },
+      { relationId:'g_mg', grandeMax:10, petiteMax:1000 },
+    ]},
+    { shape: 'additionSimpleComposite', variantes: [
+      { relationId:'T_kg', grandeMax:100, petiteMax:1000 },
+      { relationId:'kg_g', grandeMax:100, petiteMax:1000 },
+      { relationId:'g_mg', grandeMax:100, petiteMax:1000 },
+    ]},
+    { shape: 'additionCompositeComposite', variantes: [
+      { relationId:'T_kg', grandeMax:100, petiteMax:1000 },
+      { relationId:'kg_g', grandeMax:100, petiteMax:1000 },
+      { relationId:'g_mg', grandeMax:100, petiteMax:1000 },
+    ]},
+    { shape: 'additionCompositeComposite', variantes: [
+      { relationId:'T_kg', grandeMax:100, petiteMax:1000, decimalsOptions:[0,1,2,3] },
+      { relationId:'kg_g', grandeMax:100, petiteMax:1000, decimalsOptions:[0,1,2,3] },
+      { relationId:'g_mg', grandeMax:100, petiteMax:1000, decimalsOptions:[0,1,2,3] },
+    ]},
+  ],
+
+  contenances: [
+    { shape: 'simple', variantes: [{ relationId:'m3_l' }, { relationId:'l_cl' }, { relationId:'cl_ml' }] },
+    { shape: 'decomposition', variantes: [
+      { relationId:'m3_l', limite:5000 }, { relationId:'l_cl', limite:500 },
+      { relationId:'cl_ml', limite:500 }, { relationId:'l_ml', limite:5000 },
+    ]},
+    { shape: 'soustraction', variantes: [
+      { relationId:'m3_l', grandeMax:10, petiteMax:1000 },
+      { relationId:'l_cl', grandeMax:10, petiteMax:100 },
+      { relationId:'cl_ml', grandeMax:10, petiteMax:10 },
+      { relationId:'l_ml', grandeMax:10, petiteMax:1000 },
+    ]},
+    { shape: 'additionSimpleComposite', variantes: [
+      { relationId:'m3_l', grandeMax:100, petiteMax:1000 },
+      { relationId:'l_cl', grandeMax:100, petiteMax:100 },
+      { relationId:'cl_ml', grandeMax:100, petiteMax:10 },
+      { relationId:'l_ml', grandeMax:100, petiteMax:1000 },
+    ]},
+    { shape: 'additionCompositeComposite', variantes: [
+      { relationId:'m3_l', grandeMax:100, petiteMax:1000 },
+      { relationId:'l_cl', grandeMax:100, petiteMax:100 },
+      { relationId:'cl_ml', grandeMax:100, petiteMax:10 },
+      { relationId:'l_ml', grandeMax:100, petiteMax:1000 },
+    ]},
+    { shape: 'additionCompositeComposite', variantes: [
+      { relationId:'m3_l', grandeMax:100, petiteMax:1000, decimalsOptions:[0,1,2,3] },
+      { relationId:'l_cl', grandeMax:100, petiteMax:100, decimalsOptions:[0,1,2,3] },
+      { relationId:'cl_ml', grandeMax:100, petiteMax:10, decimalsOptions:[0,1,2,3] },
+      { relationId:'l_ml', grandeMax:100, petiteMax:1000, decimalsOptions:[0,1,2,3] },
+    ]},
+  ],
+
+  dureesConversions: [
+    { variantes: [
+      { relationId:'jour_heure', shape:'simple', limiteEntier:3 },
+      { relationId:'heure_min', shape:'simple', limiteEntier:5 },
+      { relationId:'min_s', shape:'simple', limiteEntier:5 },
+    ]},
+    { variantes: [
+      { relationId:'heure_min', shape:'decompositionDouble', limite:200 },
+      { relationId:'min_s', shape:'decompositionDouble', limite:200 },
+    ]},
+    { variantes: [
+      { relationId:'jour_heure', shape:'simple', limiteEntier:4 },
+      { relationId:'heure_min', shape:'simple', limiteEntier:10 },
+      { relationId:'min_s', shape:'simple', limiteEntier:10 },
+    ]},
+    { variantes: [
+      { relationId:'heure_min', shape:'decompositionDouble', limite:600 },
+      { relationId:'min_s', shape:'decompositionDouble', limite:600 },
+    ]},
+    { variantes: [
+      { relationId:'heure_min', shape:'decompositionDouble', limite:1500 },
+      { relationId:'min_s', shape:'decompositionDouble', limite:1500 },
+    ]},
+    { variantes: [
+      { shape:'decompositionTriple', limite:10000 },
+    ]},
+  ],
+
+  dureesEntre2Heures: [
+    { max:12, modeDebut:'rien',        modeFin:'demiOuQuart', secondes:false },
+    { max:12, modeDebut:'demiOuQuart', modeFin:'demiOuQuart', secondes:false },
+    { max:12, modeDebut:'multiple5',   modeFin:'multiple5',   secondes:false },
+    { max:12, modeDebut:'quelconque',  modeFin:'quelconque',  secondes:false },
+    { max:24, modeDebut:'quelconque',  modeFin:'quelconque',  secondes:false },
+    { max:24, modeDebut:'quelconque',  modeFin:'quelconque',  secondes:true  },
+  ],
+
+  dureesOperations: [
+    { shape:'additionCompositeComposite', variantes: [
+      { relationId:'h_min',   grandeMax:12, petiteMax:60, forcerDepassement:false },
+      { relationId:'min_sec', grandeMax:60, petiteMax:60, forcerDepassement:false },
+    ]},
+    { shape:'soustraction', variantes: [
+      { relationId:'h_min',   grandeMax:12, petiteMax:60 },
+      { relationId:'min_sec', grandeMax:60, petiteMax:60 },
+    ]},
+    { shape:'additionCompositeComposite', variantes: [
+      { relationId:'h_min',   grandeMax:12, petiteMax:60, forcerDepassement:true },
+      { relationId:'min_sec', grandeMax:60, petiteMax:60, forcerDepassement:true },
+    ]},
+    { shape:'soustractionCompositeComposite', variantes: [
+      { relationId:'h_min',   grandeMax:12, petiteMax:60 },
+      { relationId:'min_sec', grandeMax:60, petiteMax:60 },
+    ]},
+    { shape:'additionTripleHMS', variantes: [{ maxH:12 }] },
+    { shape:'soustractionTripleHMS', variantes: [{ maxH:12 }] },
+  ],
+
+  monnaieRendu: [
+    { billet:10, prixMax:10, nbArticles:1, centimes:'multiple10' },
+    { billet:50, prixMax:50, nbArticles:1, centimes:'multiple10' },
+    { billet:10, prixMax:10, nbArticles:1, centimes:'quelconque' },
+    { billet:50, prixMax:10, nbArticles:1, centimes:'quelconque' },
+    { billet:50, prixMax:25, nbArticles:2, centimes:'quelconque' },
+    { billet:50, prixMax:16, nbArticles:3, centimes:'quelconque' },
+  ],
+};
+
+
+/* ---------------------------------------------------------------------
+   5. REGISTRE
+   --------------------------------------------------------------------- */
+
+const generateursGrandeurs = {
+  longueurs:          creerGenerateurChaine(relationsLongueurs),
+  masses:             creerGenerateurChaine(relationsMasses),
+  contenances:        creerGenerateurChaine(relationsContenances),
+  dureesConversions:  genDureesConversions,
+  dureesEntre2Heures: genDureesEntre2Heures,
+  dureesOperations:   genDureesOperations,
+  monnaieRendu:       genMonnaieRendu,
+};
+/* =====================================================================
+   MODULE ESTIMATION — un générateur par ligne de la cartographie
+   ---------------------------------------------------------------------
+   5 sous-compétences, 6 paliers chacune. Même convention que les
+   modules précédents : paliersConfig (données) + generateurs (logique)
+   + dispatcher genQ(subCompetenceId, palier) + validateur de schéma.
+
+   ℹ️ POINT REMARQUÉ EN TRANSCRIVANT TA CARTOGRAPHIE (pas corrigé
+   silencieusement, à confirmer) :
+   - "Arrondir un nombre", paliers 5-6 : le texte source dit "accepter
+     unité sup ou inf si dixièmes=50" (palier 5) et "...=500" (palier 6).
+     Vu que palier 5 travaille des décimaux à 2 décimales et palier 6 à
+     3 décimales, j'ai interprété ça comme "le cas limite à égale
+     distance des deux unités voisines" (équivalent à un dixième=5,
+     centième=50, millième=500 selon l'échelle) plutôt qu'une valeur
+     littérale différente — à confirmer que c'est bien ce que tu voulais
+     dire.
+   - "Estimer un produit" et "Résultat plausible" : plusieurs formes très
+     différentes d'un palier à l'autre (doubler, multiplier par un petit
+     entier, deux décimaux, trois entiers...) → j'ai écrit un générateur
+     par "mode" plutôt qu'un générateur unique paramétrique, comme pour
+     les autres lignes hétérogènes déjà rencontrées (ex. Soustractions
+     décimaux).
+   - "Résultat plausible" : les 3 distracteurs sont tirés aléatoirement
+     autour du résultat correct, en garantissant un écart minimal entre
+     TOUTES les paires d'options (pas seulement par rapport au résultat
+     correct) et en excluant les valeurs négatives ou nulles.
+   ===================================================================== */
+
+
+/* ---------------------------------------------------------------------
+   0. UTILITAIRES
+   --------------------------------------------------------------------- */
+
+function randInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function genDecimalValue(max, decimalsOptions) {
+  const decimals = decimalsOptions[randInt(0, decimalsOptions.length - 1)];
+  const scale = Math.pow(10, decimals);
+  const value = randInt(1, Math.max(1, max * scale - 1)) / scale;
+  return { value, decimals };
+}
+
+function arrondirValeur(valeur, pas) {
+  return Math.round(valeur / pas) * pas;
+}
+
+function estAmbigu(valeur, pas) {
+  const remainder = Math.round((valeur - Math.floor(valeur / pas) * pas) * 1000) / 1000;
+  return Math.abs(remainder - pas / 2) < 1e-9;
+}
+
+
+/* ---------------------------------------------------------------------
+   1. CONFIGS
+   --------------------------------------------------------------------- */
+
+const paliersConfigEstimation = {
+
+  arrondir: [
+    { max: 100,    arrondiA: 'dizaine'  },
+    { max: 1000,   arrondiA: 'centaine' },
+    { max: 100000, arrondiA: 'millier'  },
+    { max: 20,     arrondiA: 'unite', decimals: 1 },
+    { max: 100,    arrondiA: 'unite', decimals: 2 },
+    { max: 1000,   arrondiA: 'unite', decimals: 3 },
+  ],
+
+  estimerSomme: [
+    { nbTermes: 2, max: 50,   arrondiA: 'dizaine' },
+    { nbTermes: 2, max: 100,  arrondiA: 'dizaine' },
+    { nbTermes: 2, max: 1000, arrondiA: 'dizaine' },
+    { nbTermes: 2, max: 20,   arrondiA: 'unite', decimals: 1 },
+    { nbTermes: 3, max: 100,  arrondiA: 'dizaine' },
+    { nbTermes: 3, max: 1000, arrondiA: 'dizaine' },
+  ],
+
+  estimerDifference: [
+    { mode: 'simple',     max: 50,   arrondiA: 'dizaine' },
+    { mode: 'simple',     max: 100,  arrondiA: 'dizaine' },
+    { mode: 'simple',     max: 1000, arrondiA: 'dizaine' },
+    { mode: 'simple',     max: 20,   arrondiA: 'unite', decimals: 1 },
+    { mode: 'multiTermes', nbTermesSoustraits: 2, max: 100,  arrondiA: 'dizaine' },
+    { mode: 'multiTermes', nbTermesSoustraits: 2, max: 1000, arrondiA: 'dizaine' },
+  ],
+
+  estimerProduit: [
+    { mode: 'doubler',          min: 11, max: 100,  pas: 10  },
+    { mode: 'doubler',          min: 101, max: 1000, pas: 100 },
+    { mode: 'parEntierPetit',   min: 11, max: 100,  pas: 10  },
+    { mode: 'decimalParEntier', max: 20, decimals: 1 },
+    { mode: 'deuxDecimaux',     max: 10, decimals: 1 },
+    { mode: 'troisEntiers',     min: 11, max: 100,  pas: 10  },
+  ],
+
+  resultatPlausible: [
+    { mode: 'additionOuSoustractionDeux',  max: 100,  diffMin: 10 },
+    { mode: 'additionOuSoustractionDeux',  max: 1000, diffMin: 100 },
+    { mode: 'multiplicationDeux',          maxA: 100, maxB: 10, diffMin: 30 },
+    { mode: 'additionOuSoustractionDeux',  max: 20,   decimals: 1, diffMin: 1 },
+    { mode: 'additionOuSoustractionTrois', max: 100,  diffMin: 20 },
+    { mode: 'multiplicationTrois',         min: 11,   max: 100, diffMin: 50 },
+  ],
+};
+
+
+/* ---------------------------------------------------------------------
+   2. GÉNÉRATEURS
+   --------------------------------------------------------------------- */
+
+function genArrondir(config) {
+  const { max, arrondiA, decimals } = config;
+  const pas = { unite: 1, dizaine: 10, centaine: 100, millier: 1000 }[arrondiA];
+  const valeur = decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
+  const arrondi = arrondirValeur(valeur, pas);
+  return {
+    text: `${valeur} arrondi à ${arrondiA === 'unite' ? "l'unité" : 'la ' + arrondiA}`,
+    answer: arrondi,
+    ambigu: estAmbigu(valeur, pas),
+  };
+}
+
+function genEstimerSomme(config) {
+  const { nbTermes, max, arrondiA, decimals } = config;
+  const pas = { unite: 1, dizaine: 10, centaine: 100 }[arrondiA];
+  const tirer = () => decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
+  const termes = Array.from({ length: nbTermes }, tirer);
+  const somme = Math.round(termes.reduce((s, n) => s + n, 0) * 1000) / 1000;
+  return { text: termes.join(' + '), answer: arrondirValeur(somme, pas), ambigu: estAmbigu(somme, pas) };
+}
+
+function genEstimerDifference(config) {
+  const { mode, nbTermesSoustraits, max, decimals, arrondiA } = config;
+  const pas = { unite: 1, dizaine: 10, centaine: 100 }[arrondiA];
+  const tirer = () => decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
+
+  let texte, resultat;
+  if (mode === 'simple') {
+    let a = tirer(), b = tirer();
+    if (b > a) [a, b] = [b, a]; // interdire les résultats négatifs
+    resultat = Math.round((a - b) * 1000) / 1000;
+    texte = `${a} - ${b}`;
+  } else {
+    const a = randInt(nbTermesSoustraits + 1, max - 1);
+    const termes = [];
+    let reste = a;
+    for (let i = 0; i < nbTermesSoustraits; i++) {
+      const t = randInt(1, Math.max(1, reste - 1));
+      termes.push(t);
+      reste -= t;
+    }
+    resultat = a - termes.reduce((s, n) => s + n, 0);
+    texte = `${a} - ${termes.join(' - ')}`;
+  }
+
+  return { text: texte, answer: arrondirValeur(resultat, pas), ambigu: estAmbigu(resultat, pas) };
+}
+
+function genEstimerProduit(config) {
+  const { mode } = config;
+
+  if (mode === 'doubler') {
+    const { min, max, pas } = config;
+    const a = randInt(min, max - 1);
+    return { text: `${a} × 2`, answer: arrondirValeur(a, pas) * 2 };
+  }
+
+  if (mode === 'parEntierPetit') {
+    const { min, max, pas } = config;
+    const a = randInt(min, max - 1);
+    const b = randInt(1, 9);
+    return { text: `${a} × ${b}`, answer: arrondirValeur(a, pas) * b };
+  }
+
+  if (mode === 'decimalParEntier') {
+    const { max, decimals } = config;
+    const a = genDecimalValue(max, [decimals]).value;
+    const b = randInt(1, 9);
+    return { text: `${a} × ${b}`, answer: Math.round(a) * b };
+  }
+
+  if (mode === 'deuxDecimaux') {
+    const { max, decimals } = config;
+    const a = genDecimalValue(max, [decimals]).value;
+    const b = genDecimalValue(max, [decimals]).value;
+    return { text: `${a} × ${b}`, answer: Math.round(a) * Math.round(b) };
+  }
+
+  // mode === 'troisEntiers'
+  const { min, max, pas } = config;
+  const termes = [randInt(min, max - 1), randInt(min, max - 1), randInt(min, max - 1)];
+  const produit = termes.map(t => arrondirValeur(t, pas)).reduce((p, n) => p * n, 1);
+  return { text: termes.join(' × '), answer: produit };
+}
+
+function genResultatPlausible(config) {
+  const { mode, diffMin } = config;
+  let texte, correct;
+
+  if (mode === 'additionOuSoustractionDeux') {
+    const { max, decimals } = config;
+    const tirer = () => decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
+    let a = tirer(), b = tirer();
+    const operation = Math.random() < 0.5 ? '+' : '-';
+    if (operation === '-' && b > a) [a, b] = [b, a];
+    correct = operation === '+' ? Math.round((a + b) * 1000) / 1000 : Math.round((a - b) * 1000) / 1000;
+    texte = `${a} ${operation} ${b}`;
+  } else if (mode === 'additionOuSoustractionTrois') {
+    const { max } = config;
+    let a = randInt(1, max - 1), b = randInt(1, max - 1), c = randInt(1, max - 1);
+    const operation = Math.random() < 0.5 ? '+' : '-';
+    if (operation === '-') {
+      [a, b, c] = [a, b, c].sort((x, y) => y - x); // garantit un résultat positif (simplification)
+    }
+    correct = operation === '+' ? a + b + c : a - b - c;
+    texte = `${a} ${operation} ${b} ${operation} ${c}`;
+  } else if (mode === 'multiplicationDeux') {
+    const { maxA, maxB } = config;
+    const a = randInt(1, maxA - 1);
+    const b = randInt(1, maxB - 1);
+    correct = a * b;
+    texte = `${a} × ${b}`;
+  } else { // 'multiplicationTrois'
+    const { min, max } = config;
+    const termes = [randInt(min, max - 1), randInt(min, max - 1), randInt(min, max - 1)];
+    correct = termes.reduce((p, n) => p * n, 1);
+    texte = termes.join(' × ');
+  }
+
+  const options = [correct];
+  let tentatives = 0;
+  while (options.length < 4 && tentatives < 1000) {
+    tentatives++;
+    const ecart = randInt(1, 5) * diffMin * (Math.random() < 0.5 ? -1 : 1);
+    const candidat = Math.round((correct + ecart) * 100) / 100;
+    if (candidat <= 0) continue;
+    if (options.every(o => Math.abs(o - candidat) >= diffMin)) options.push(candidat);
+  }
+  for (let i = options.length - 1; i > 0; i--) {
+    const j = randInt(0, i);
+    [options[i], options[j]] = [options[j], options[i]];
+  }
+
+  return { text: texte, options, answer: correct };
+}
+
+
+/* ---------------------------------------------------------------------
+   3. REGISTRE
+   --------------------------------------------------------------------- */
+
+const generateursEstimation = {
+  arrondir:           genArrondir,
+  estimerSomme:       genEstimerSomme,
+  estimerDifference:  genEstimerDifference,
+  estimerProduit:     genEstimerProduit,
+  resultatPlausible:  genResultatPlausible,
+};
+
+
+/* =====================================================================
+   FUSION DES 6 CATÉGORIES — registre global + dispatcher unique
+   ===================================================================== */
+
+const paliersConfig = {
+  ...paliersConfigAdditions,
+  ...paliersConfigSoustractions,
+  ...paliersConfigMultiplications,
+  ...paliersConfigDivisions,
+  ...paliersConfigGrandeurs,
+  ...paliersConfigEstimation,
+};
+
+const generateurs = {
+  ...generateursAdditions,
+  ...generateursSoustractions,
+  ...generateursMultiplications,
+  ...generateursDivisions,
+  ...generateursGrandeurs,
+  ...generateursEstimation,
+};
+
+function genQ(subCompetenceId, palier /* 1 à 6 */) {
+  const config = paliersConfig[subCompetenceId]?.[palier - 1];
+  const generateur = generateurs[subCompetenceId];
+  if (!config)     throw new Error(`Config manquante: ${subCompetenceId} palier ${palier}`);
+  if (!generateur) throw new Error(`Générateur manquant: ${subCompetenceId}`);
+  return generateur(config);
+}
+
+function validerPaliersConfig(config) {
+  const erreurs = [];
+  for (const [id, paliers] of Object.entries(config)) {
+    if (!Array.isArray(paliers) || paliers.length !== 6) {
+      erreurs.push(`${id}: doit avoir exactement 6 paliers (trouvé: ${paliers?.length})`);
+      continue;
+    }
+    if (!generateurs[id]) erreurs.push(`${id}: aucun générateur enregistré`);
+  }
+  if (erreurs.length) {
+    console.error('❌ Erreurs de config détectées :');
+    erreurs.forEach(e => console.error('  - ' + e));
+  } else {
+    console.log(`✅ paliersConfig global valide : ${Object.keys(config).length} sous-compétences × 6 paliers.`);
+  }
+  return erreurs;
+}
+
+validerPaliersConfig(paliersConfig);
+
+window.MoteurCM = { paliersConfig, generateurs, genQ, validerPaliersConfig };
+
+})();
+
+</script>
+
+<!-- ====================================================
+     MOTEUR ADAPTATIF (temps de référence, progression par paliers)
+     Exposé en window.MoteurAdaptatif
+===================================================== -->
+<script>
+/* =====================================================================
+   MOTEUR ADAPTATIF — autonome, sans stockage
+   ---------------------------------------------------------------------
+   Ce module ne connaît rien de Firebase ni d'une base de données : il
+   prend un état de progression en entrée, une réponse de l'élève, et
+   renvoie le nouvel état. Le stockage réel (lecture/écriture en base)
+   sera branché autour de ces fonctions à l'étape suivante.
+
+   Dépend de genQ-tout.js (catalogue des 51 sous-compétences et de leurs
+   6 paliers), pour : échantillonner des questions types et estimer un
+   temps de référence automatique, et connaître la config de chaque
+   palier (pour y lire le niveau de retenue quand il existe).
+
+   ⚠️ LA FORMULE DE TEMPS DE RÉFÉRENCE EST UNE PREMIÈRE APPROXIMATION.
+   Elle est calée à la louche sur tes 4 repères (table ≈3s, addition
+   <100 ≈15s, multiplication <100×<10 ≈20s, calcul complexe ≈30s), mais
+   avec 4-5 facteurs à combiner pour 306 cas (51 sous-compétences × 6
+   paliers) à partir de seulement 4 points de repère, il y a forcément
+   une part d'approximation. Elle est volontairement simple et
+   transparente pour que tu puisses juger vite si un temps proposé est
+   absurde — et l'ajuster via le réglage en cascade (ajustementTempsSecondes)
+   plutôt que de devoir comprendre une formule compliquée.
+
+   Comme pour genQ-tout.js, tout est enveloppé dans une IIFE : seul
+   window.MoteurAdaptatif est exposé, rien d'autre ne fuit dans l'espace
+   global.
+   ===================================================================== */
+
+(function() {
+
+const { paliersConfig, genQ } = window.MoteurCM;
+
+
+/* ---------------------------------------------------------------------
+   0. CATÉGORIE DE CHAQUE SOUS-COMPÉTENCE (pour le niveau "catégorie"
+      de la cascade de réglages)
+   --------------------------------------------------------------------- */
+
+const CATEGORIE_PAR_SOUS_COMPETENCE = {
+  // Additions
+  maisonsDesNombres: 'addition', complementsNbEntiers: 'addition',
+  additionner2Multiples10: 'addition', additionner2Multiples5ou10: 'addition',
+  additionner2FinissantPar9: 'addition', additionner2FinissantPar8ou9: 'addition',
+  additionner2Entiers: 'addition', additionner3Entiers: 'addition', additionner4Entiers: 'addition',
+  additionsDecimaux: 'addition', additionATrous: 'addition', additionFractions: 'addition',
+  // Soustractions
+  soustraction2Multiples10: 'soustraction', soustraction2Multiples5ou10: 'soustraction',
+  soustractionFinissantPar9: 'soustraction', soustractionFinissantPar8ou9: 'soustraction',
+  soustraire1EntierA1: 'soustraction', soustraire2EntiersA1: 'soustraction', soustraire3EntiersA1: 'soustraction',
+  soustractionsDecimaux: 'soustraction', equationATrousSoustraction: 'soustraction', soustractionFractions: 'soustraction',
+  // Multiplications
+  tablesMultiplication: 'multiplication', tablesMultiplicationATrou: 'multiplication',
+  multiplierPar10_100_1000: 'multiplication', doubler: 'multiplication', quadrupler: 'multiplication',
+  multiplier5_25_50: 'multiplication', multiplier9ou11: 'multiplication',
+  multiplicationsVarieesEntiers: 'multiplication', equationATrousMultiplication: 'multiplication',
+  multiplicationsVarieesDecimaux: 'multiplication',
+  // Divisions
+  moitie: 'division', quart: 'division', diviserPar10_100_1000: 'division',
+  diviser5_25_50: 'division', divisionQuotientReste: 'division',
+  diviserPar2ou4: 'division', diviserParDecimal: 'division',
+  // Grandeurs
+  longueurs: 'grandeurs', masses: 'grandeurs', contenances: 'grandeurs',
+  dureesConversions: 'grandeurs', dureesEntre2Heures: 'grandeurs',
+  dureesOperations: 'grandeurs', monnaieRendu: 'grandeurs',
+  // Estimation
+  arrondir: 'estimation', estimerSomme: 'estimation', estimerDifference: 'estimation',
+  estimerProduit: 'estimation', resultatPlausible: 'estimation',
+};
+
+// Sous-compétences de pure mémorisation : temps de référence fixé à part,
+// indépendamment de la formule générique (ça n'a rien à voir avec un calcul posé).
+const TABLES_APPRISES = ['tablesMultiplication', 'tablesMultiplicationATrou'];
+
+// Bonus selon le type d'opération : à chiffres égaux, une multiplication ou
+// une division demande un effort mental différent d'une simple addition.
+// Calibré pour que "multiplication <100 par <10" (sans retenue) atteigne ~20s,
+// comme ton repère, au lieu de retomber au même niveau qu'une addition.
+const BONUS_CATEGORIE = {
+  addition: 0, soustraction: 2, multiplication: 5, division: 7,
+  grandeurs: 3, estimation: 3,
+};
+
+
+/* ---------------------------------------------------------------------
+   1. TEMPS DE RÉFÉRENCE AUTOMATIQUE
+   --------------------------------------------------------------------- */
+
+function extraireChiffresEtTermes(texte) {
+  const nombres = (texte.match(/\d+(?:[.,]\d+)?/g) || []).map(s => s.replace(',', '.'));
+  const chiffresMax = nombres.length
+    ? Math.max(...nombres.map(n => n.replace('.', '').replace('-', '').length))
+    : 1;
+  const decimalesMax = nombres.length
+    ? Math.max(...nombres.map(n => (n.split('.')[1] || '').length))
+    : 0;
+  const operateurs = (texte.match(/[+\-×÷]/g) || []).length;
+  const termes = Math.max(2, operateurs + 1);
+  return { chiffresMax, decimalesMax, termes };
+}
+
+function detecterNiveauRetenue(config) {
+  const candidats = [];
+  function collecter(obj) {
+    if (!obj || typeof obj !== 'object') return;
+    if (typeof obj.retenue === 'string') candidats.push(obj.retenue);
+    if (Array.isArray(obj.variantes)) obj.variantes.forEach(collecter);
+  }
+  collecter(config);
+  if (candidats.length === 0) return null; // inconnu : pas de notion de retenue dans cette config
+  const rang = { aucune: 0, libre: 0, simple: 1, double: 2, unOuDeux: 2, avecRetenues: 2, plusieurs: 3, multiple: 3 };
+  return Math.max(...candidats.map(c => rang[c] ?? 1));
+}
+
+const _cacheTemps = new Map();
+
+function estimerTempsReference(subCompetenceId, palier, nbEchantillons = 15) {
+  const cle = `${subCompetenceId}:${palier}`;
+  if (_cacheTemps.has(cle)) return _cacheTemps.get(cle);
+
+  let temps;
+  if (TABLES_APPRISES.includes(subCompetenceId)) {
+    temps = 3 + (palier - 1) * 1; // mémorisation pure : 3s (palier 1) à 8s (palier 6)
+  } else {
+    let chiffresMax = 1, decimalesMax = 0, termesMax = 2, special = false;
+
+    for (let i = 0; i < nbEchantillons; i++) {
+      const q = genQ(subCompetenceId, palier);
+      if (q.isFrac || q.isDual || Array.isArray(q.options)) special = true;
+      const r = extraireChiffresEtTermes(q.text || '');
+      chiffresMax = Math.max(chiffresMax, r.chiffresMax);
+      decimalesMax = Math.max(decimalesMax, r.decimalesMax);
+      termesMax = Math.max(termesMax, r.termes);
+    }
+
+    const config = paliersConfig[subCompetenceId][palier - 1];
+    const niveauRetenue = detecterNiveauRetenue(config);
+    const BONUS_RETENUE = { 0: 0, 1: 5, 2: 8, 3: 10 };
+    const bonusRetenue = niveauRetenue === null ? 3 : BONUS_RETENUE[niveauRetenue];
+
+    const bonusCategorie = BONUS_CATEGORIE[CATEGORIE_PAR_SOUS_COMPETENCE[subCompetenceId]] ?? 3;
+
+    temps = 8
+      + 7 * Math.max(0, chiffresMax - 1)
+      + 5 * Math.max(0, termesMax - 2)
+      + bonusRetenue
+      + 3 * decimalesMax
+      + bonusCategorie;
+
+    if (special) temps += 5; // fraction, réponse double, ou choix multiple
+  }
+
+  temps = Math.round(temps);
+  _cacheTemps.set(cle, temps);
+  return temps;
+}
+
+
+/* ---------------------------------------------------------------------
+   2. RÉGLAGES ENSEIGNANT EN CASCADE (global → catégorie → sous-compétence)
+   --------------------------------------------------------------------- */
+
+const reglagesParDefaut = {
+  global: {
+    seuilProgression: 40,          // nombre de points pour passer au palier suivant
+    ajustementTempsSecondes: 0,    // ajout/retrait appliqué au temps de référence auto-calculé
+    bonusRapide: 1,                // points gagnés si réponse correcte avant le temps de référence
+    bonusLent: 0.5,                // points gagnés si réponse correcte mais après le temps de référence
+    penaliteErreur: 1,             // points perdus si erreur ou non-réponse
+  },
+  categories: {},       // ex: { addition: { seuilProgression: 30 } }
+  sousCompetences: {},  // ex: { additionner2Entiers: { penaliteErreur: 2 } }
+};
+
+function resoudreReglage(subCompetenceId, cle, reglages = reglagesParDefaut) {
+  const sc = reglages.sousCompetences?.[subCompetenceId];
+  if (sc && sc[cle] !== undefined) return sc[cle];
+  const categorie = CATEGORIE_PAR_SOUS_COMPETENCE[subCompetenceId];
+  const cat = reglages.categories?.[categorie];
+  if (cat && cat[cle] !== undefined) return cat[cle];
+  return reglages.global[cle];
+}
+
+function tempsReference(subCompetenceId, palier, reglages = reglagesParDefaut) {
+  const auto = estimerTempsReference(subCompetenceId, palier);
+  const ajustement = resoudreReglage(subCompetenceId, 'ajustementTempsSecondes', reglages);
+  return Math.max(1, auto + ajustement);
+}
+
+
+/* ---------------------------------------------------------------------
+   3. ÉTAT DE PROGRESSION — traiter une réponse
+   --------------------------------------------------------------------- */
+
+// etat : { palier: 1-6, compteur: 0..seuil }
+function etatInitial() {
+  return { palier: 1, compteur: 0 };
+}
+
+// reponse : { correcte: bool, tempsSecondes: number|null }
+// tempsSecondes est null/undefined en cas de non-réponse (validée vide).
+function traiterReponse(etat, reponse, subCompetenceId, reglages = reglagesParDefaut) {
+  const seuil = resoudreReglage(subCompetenceId, 'seuilProgression', reglages);
+  const bonusRapide = resoudreReglage(subCompetenceId, 'bonusRapide', reglages);
+  const bonusLent = resoudreReglage(subCompetenceId, 'bonusLent', reglages);
+  const penalite = resoudreReglage(subCompetenceId, 'penaliteErreur', reglages);
+  const tempsRef = tempsReference(subCompetenceId, etat.palier, reglages);
+
+  const nonReponse = reponse.tempsSecondes === null || reponse.tempsSecondes === undefined;
+  const correcte = reponse.correcte && !nonReponse;
+
+  let delta;
+  if (correcte) {
+    delta = reponse.tempsSecondes < tempsRef ? bonusRapide : bonusLent;
+  } else {
+    delta = -penalite; // erreur et non-réponse traitées à l'identique, comme convenu
+  }
+
+  let compteur = Math.max(0, etat.compteur + delta);
+  let palier = etat.palier;
+  let aProgresse = false;
+
+  if (compteur >= seuil && palier < 6) {
+    palier += 1;
+    compteur = 0; // on repart à zéro au nouveau palier
+    aProgresse = true;
+  } else if (palier === 6) {
+    compteur = Math.min(compteur, seuil); // palier maximum : la barre ne dépasse pas 100%
+  }
+
+  return {
+    nouvelEtat: { palier, compteur },
+    aProgresse,
+    seuil,
+    tempsReferenceUtilise: tempsRef,
+    pointsAppliques: delta,
+  };
+}
+
+
+/* ---------------------------------------------------------------------
+   4. EXPORT
+   --------------------------------------------------------------------- */
+
+window.MoteurAdaptatif = {
+  CATEGORIE_PAR_SOUS_COMPETENCE,
+  estimerTempsReference,
+  resoudreReglage,
+  tempsReference,
+  etatInitial,
+  traiterReponse,
+  reglagesParDefaut,
+};
+
+})();
+
+</script>
+
 <div class="feedback-pop" id="feedbackPop"></div>
 
 <!-- ====================================================
