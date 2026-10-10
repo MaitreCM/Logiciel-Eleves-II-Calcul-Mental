@@ -1233,16 +1233,18 @@ function genAdditionFractions(config) {
     const num2 = randInt(1, numMax);
     return {
       text: `${num1}/${den} + ${num2}/${den}`,
-      answer: { num: num1 + num2, den },
+      answer: num1 + num2, // numérateur du résultat, sur le même dénominateur (non simplifié)
       isFrac: true,
+      frac: { type: 'add', n1: num1, d1: den, n2: num2, d2: den, ansDen: den },
     };
   } else {
     const entier = randInt(1, entierMax);
     const num = randInt(1, numMax);
     return {
       text: `${entier} + ${num}/${den}`,
-      answer: { entier, num, den },
+      answer: entier * den + num, // numérateur du résultat écrit en fraction sur den
       isFrac: true,
+      frac: { type: 'add_ent', entier, n1: num, d1: den, ansDen: den },
     };
   }
 }
@@ -1620,13 +1622,15 @@ function genSoustractionFractions(config) {
     let num1 = randInt(1, numMax);
     let num2 = randInt(1, numMax);
     if (num2 > num1) [num1, num2] = [num2, num1];
-    return { text: `${num1}/${den} - ${num2}/${den}`, answer: { num: num1 - num2, den }, isFrac: true };
+    return { text: `${num1}/${den} - ${num2}/${den}`, answer: num1 - num2, isFrac: true,
+             frac: { type: 'sub', n1: num1, d1: den, n2: num2, d2: den, ansDen: den } };
   }
 
   const entier = randInt(1, entierMax);
   const numMaxPossible = Math.min(numMax, entier * den); // garantit fraction <= entier
   const num = randInt(1, Math.max(1, numMaxPossible));
-  return { text: `${entier} - ${num}/${den}`, answer: { entier, num, den }, isFrac: true };
+  return { text: `${entier} - ${num}/${den}`, answer: entier * den - num, isFrac: true,
+           frac: { type: 'sub_ent', entier, n1: num, d1: den, ansDen: den } };
 }
 
 
@@ -2153,7 +2157,7 @@ function genDivisionQuotientReste(config) {
     dividende -= diviseur;
     quotient -= 1;
   }
-  return { text: `${dividende} ÷ ${diviseur}`, answer: { quotient, reste }, isDual: true };
+  return { text: `${dividende} ÷ ${diviseur}`, answer: { quotient, reste }, isDual: true, labels: ['Quotient', 'Reste'] };
 }
 
 function genDiviserPar2ou4(config) {
@@ -2327,7 +2331,7 @@ function genGrandeurChaine(config, relations) {
     return {
       text: `${valeur} ${relation.petite} = ? ${relation.grande} ? ${relation.petite}`,
       answer: { grande: grandePart, petite: petitePart },
-      isDual: true, noSuffix: true,
+      isDual: true, labels: [relation.grande, relation.petite], noSuffix: true,
     };
   }
 
@@ -2341,7 +2345,7 @@ function genGrandeurChaine(config, relations) {
     return {
       text: `${operandeGrande} ${relation.grande} - ${operandePetite} ${relation.petite}`,
       answer: { grande: resultGrande, petite: resultPetite },
-      isDual: true,
+      isDual: true, labels: [relation.grande, relation.petite],
     };
   }
 
@@ -2361,7 +2365,7 @@ function genGrandeurChaine(config, relations) {
     return {
       text: `${r.op1Grande} ${relation.grande} ${r.op1Petite} ${relation.petite} + ${r.op2} ${relation.petite}`,
       answer: { grande: r.resultGrande, petite: r.resultPetite },
-      isDual: true,
+      isDual: true, labels: [relation.grande, relation.petite],
     };
   }
 
@@ -2388,7 +2392,7 @@ function genGrandeurChaine(config, relations) {
   return {
     text: `${r.op1Grande} ${relation.grande} ${r.op1Petite} ${relation.petite} + ${op2Grande} ${relation.grande} ${op2Petite} ${relation.petite}`,
     answer: { grande: r.resultGrande, petite: r.resultPetite },
-    isDual: true,
+    isDual: true, labels: [relation.grande, relation.petite],
   };
 }
 
@@ -2417,7 +2421,7 @@ function genDureesConversions(config) {
     const reste = valeur % 3600;
     const m = Math.floor(reste / 60);
     const s = reste % 60;
-    return { text: `${valeur} s = ? h ? min ? s`, answer: { heures: h, minutes: m, secondes: s }, isDual: true, noSuffix: true };
+    return { text: `${valeur} s = ? h ? min ? s`, answer: { heures: h, minutes: m, secondes: s }, isDual: true, labels: ['h', 'min', 's'], noSuffix: true };
   }
 
   const relation = relationsDureesConversions[v.relationId];
@@ -2434,7 +2438,7 @@ function genDureesConversions(config) {
   return {
     text: `${valeur} ${relation.petite} = ? ${relation.grande} ? ${relation.petite}`,
     answer: { grande: grandePart, petite: petitePart },
-    isDual: true, noSuffix: true,
+    isDual: true, labels: [relation.grande, relation.petite], noSuffix: true,
   };
 }
 
@@ -2474,7 +2478,7 @@ function genDureesEntre2Heures(config) {
   const answer = secondes ? { heures: hDiff, minutes: mDiff, secondes: sDiff } : { heures: hDiff, minutes: mDiff };
   return {
     text: `De ${fmt(r.hDebut, r.mDebut, r.sDebut)} à ${fmt(r.hFin, r.mFin, r.sFin)}, combien de temps s'est écoulé ?`,
-    answer, isDual: true,
+    answer, isDual: true, labels: secondes ? ['h', 'min', 's'] : ['h', 'min'],
   };
 }
 
@@ -2500,14 +2504,14 @@ function genDureesOperations(config) {
       const op2Total = resultTotal - op1Total;
       return {
         text: `${fmt(toHMS(op1Total))} + ${fmt(toHMS(op2Total))}`,
-        answer: { heures: resultH, minutes: resultM, secondes: resultS }, isDual: true,
+        answer: { heures: resultH, minutes: resultM, secondes: resultS }, isDual: true, labels: ['h', 'min', 's'],
       };
     }
     const op2Total = randInt(0, 86399 - resultTotal);
     const op1Total = resultTotal + op2Total;
     return {
       text: `${fmt(toHMS(op1Total))} - ${fmt(toHMS(op2Total))}`,
-      answer: { heures: resultH, minutes: resultM, secondes: resultS }, isDual: true,
+      answer: { heures: resultH, minutes: resultM, secondes: resultS }, isDual: true, labels: ['h', 'min', 's'],
     };
   }
 
@@ -2523,7 +2527,7 @@ function genDureesOperations(config) {
     const operandePetite = operandeGrande*relation.facteur - resultTotal;
     return {
       text: `${operandeGrande} ${relation.grande} - ${operandePetite} ${relation.petite}`,
-      answer: { grande: resultGrande, petite: resultPetite }, isDual: true,
+      answer: { grande: resultGrande, petite: resultPetite }, isDual: true, labels: [relation.grande, relation.petite],
     };
   }
 
@@ -2548,7 +2552,7 @@ function genDureesOperations(config) {
     const r = tirageAvecCondition(fabrique, x => x.resultGrande < grandeMax);
     return {
       text: `${formatComposite(relation, r.op1Grande, r.op1Petite)} + ${formatComposite(relation, r.op2Grande, r.op2Petite)}`,
-      answer: { grande: r.resultGrande, petite: r.resultPetite }, isDual: true,
+      answer: { grande: r.resultGrande, petite: r.resultPetite }, isDual: true, labels: [relation.grande, relation.petite],
     };
   }
 
@@ -2569,7 +2573,7 @@ function genDureesOperations(config) {
   const r = tirageAvecCondition(fabrique, x => x.op1Grande < grandeMax + 10);
   return {
     text: `${formatComposite(relation, r.op1Grande, r.op1Petite)} - ${formatComposite(relation, r.op2Grande, r.op2Petite)}`,
-    answer: { grande: r.resultGrande, petite: r.resultPetite }, isDual: true,
+    answer: { grande: r.resultGrande, petite: r.resultPetite }, isDual: true, labels: [relation.grande, relation.petite],
   };
 }
 
@@ -2892,6 +2896,7 @@ function genArrondir(config) {
     text: `${valeur} arrondi à ${arrondiA === 'unite' ? "l'unité" : 'la ' + arrondiA}`,
     answer: arrondi,
     ambigu: estAmbigu(valeur, pas),
+    altAnswer: estAmbigu(valeur, pas) ? arrondi - pas : undefined,
   };
 }
 
@@ -2901,7 +2906,7 @@ function genEstimerSomme(config) {
   const tirer = () => decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
   const termes = Array.from({ length: nbTermes }, tirer);
   const somme = Math.round(termes.reduce((s, n) => s + n, 0) * 1000) / 1000;
-  return { text: termes.join(' + '), answer: arrondirValeur(somme, pas), ambigu: estAmbigu(somme, pas) };
+  return { text: termes.join(' + '), answer: arrondirValeur(somme, pas), ambigu: estAmbigu(somme, pas), altAnswer: estAmbigu(somme, pas) ? arrondirValeur(somme, pas) - pas : undefined };
 }
 
 function genEstimerDifference(config) {
@@ -2928,7 +2933,7 @@ function genEstimerDifference(config) {
     texte = `${a} - ${termes.join(' - ')}`;
   }
 
-  return { text: texte, answer: arrondirValeur(resultat, pas), ambigu: estAmbigu(resultat, pas) };
+  return { text: texte, answer: arrondirValeur(resultat, pas), ambigu: estAmbigu(resultat, pas), altAnswer: estAmbigu(resultat, pas) ? arrondirValeur(resultat, pas) - pas : undefined };
 }
 
 function genEstimerProduit(config) {
@@ -3494,50 +3499,14 @@ window.MoteurAdaptatif = {
 ===================================================== -->
 <div class="screen" id="s3">
   <button class="btn-back" onclick="goBackFromS3()">← Retour</button>
-  <div class="app-title" style="font-size:1.5rem; margin-bottom:16px;">Paramètres</div>
-
-  <div class="section-lbl">Niveau de difficulté</div>
-  <div class="level-row">
-    <div class="lvl-card" data-lv="1" onclick="selectLevel(1)">
-      <div class="lvl-icon">🌱</div>
-      <div class="lvl-name">Débutant</div>
-    </div>
-    <div class="lvl-card" data-lv="2" onclick="selectLevel(2)">
-      <div class="lvl-icon">⭐</div>
-      <div class="lvl-name">Intermédiaire</div>
-    </div>
-    <div class="lvl-card" data-lv="3" onclick="selectLevel(3)">
-      <div class="lvl-icon">🔥</div>
-      <div class="lvl-name">Confirmé</div>
-    </div>
-    <div class="lvl-card" data-lv="4" onclick="selectLevel(4)">
-      <div class="lvl-icon">🏆</div>
-      <div class="lvl-name">Expert</div>
-    </div>
-  </div>
+  <div class="app-title" style="font-size:1.5rem; margin-bottom:16px;">Combien de questions ?</div>
 
   <div class="settings-box">
-    <div class="settings-row">
-      <div class="settings-label">⏱ Durée par question</div>
-      <div class="chip-row" id="timeChips">
-        <button class="chip-btn" onclick="setTime(5)">5 s</button>
-        <button class="chip-btn selected" onclick="setTime(10)">10 s</button>
-        <button class="chip-btn" onclick="setTime(15)">15 s</button>
-        <button class="chip-btn" onclick="setTime(20)">20 s</button>
-        <button class="chip-btn" onclick="setTime(30)">30 s</button>
-        <button class="chip-btn" onclick="setTime(45)">45 s</button>
-        <button class="chip-btn" onclick="setTime(60)">1 min</button>
-        <button class="chip-btn" onclick="setTime(75)">1 min 15</button>
-        <button class="chip-btn" onclick="setTime(90)">1 min 30</button>
-        <button class="chip-btn" onclick="setTime(120)">2 min</button>
-      </div>
-    </div>
     <div class="settings-row">
       <div class="settings-label">📝 Nombre de questions</div>
       <div class="chip-row" id="nbChips">
         <button class="chip-btn" onclick="setNbQ(5)">5</button>
         <button class="chip-btn selected" onclick="setNbQ(10)">10</button>
-        <button class="chip-btn" onclick="setNbQ(15)">15</button>
         <button class="chip-btn" onclick="setNbQ(20)">20</button>
         <button class="chip-btn" onclick="setNbQ(30)">30</button>
       </div>
@@ -3545,9 +3514,6 @@ window.MoteurAdaptatif = {
   </div>
 
   <button class="btn btn-primary" id="startBtn" onclick="startGame()">▶ Commencer !</button>
-  <div id="levelWarning" style="display:none; margin-top:10px; font-size:0.82rem; font-weight:700; color:var(--accent1); text-align:center; animation: fadeIn 0.2s ease;">
-    ⚠️ Choisis d'abord un niveau de difficulté !
-  </div>
 </div>
 
 <!-- ====================================================
@@ -3913,96 +3879,72 @@ async function ajouterNouvelEleve() {
 // ================================================================
 const TYPES = {
   add: [
-    { id:'add_all_int',   name:'Additions variées (entiers)',                                    sub:null },
-    { id:'add_all_dec',   name:'Additions variées (décimaux)',                                   sub:null },
-    { id:'add_2_int',     name:'Additionner 2 entiers (< 10, < 100 ou < 1000)',                  sub:['< 10','< 100','< 1000'] },
-    { id:'add_complement',name:'Trouver un complément (à 10, 100 ou 1000)',                      sub:['à 10','à 100','à 1000'] },
-    { id:'add_maison',    name:'Maisons des nombres (de 3 à 10)',                                sub:null },
-    { id:'add_mult10',    name:'Additionner des multiples de 10',                                sub:null },
-    { id:'add_mult5_10',  name:'Additionner des multiples de 5 ou 10',                          sub:null },
-    { id:'add_fin9',      name:'Additionner un nombre finissant par 9',                         sub:null },
-    { id:'add_fin89',     name:'Additionner un nombre finissant par 8 ou 9',                    sub:null },
-    { id:'add_3_int',     name:'Additionner 3 entiers (< 10, < 100 ou < 1000)',                 sub:['< 10','< 100','< 1000'] },
-    { id:'add_4_int',     name:'Additionner 4 entiers (< 10, < 100 ou < 1000)',                 sub:['< 10','< 100','< 1000'] },
-    { id:'add_int_dec',   name:'Additionner un entier et un décimal',                           sub:null },
-    { id:'add_dec_dec',   name:'Additionner des décimaux',                                      sub:null },
-    { id:'add_frac',      name:'Additionner des fractions (même dénominateur)',                  sub:['Dén. ≤ 5','Dén. ≤ 10','Dén. ≤ 20','Dén. multiples'], frac:true },
-    { id:'frac_qte',      name:"Fraction d'une quantité (2/3 de 12, 3/4 de 20)",                sub:null, frac:true },
-    { id:'add_trou',      name:'Équation à trou — addition (□ + 7 = 15)',                       sub:null },
+    { id:'maisonsDesNombres', name:"Maisons des nombres (de 3 à 10)" },
+    { id:'complementsNbEntiers', name:"Trouver un complément (à 10, 100 ou 1000)" },
+    { id:'additionner2Multiples10', name:"Additionner des multiples de 10" },
+    { id:'additionner2Multiples5ou10', name:"Additionner des multiples de 5 ou 10" },
+    { id:'additionner2FinissantPar9', name:"Additionner un nombre finissant par 9" },
+    { id:'additionner2FinissantPar8ou9', name:"Additionner un nombre finissant par 8 ou 9" },
+    { id:'additionner2Entiers', name:"Additionner 2 entiers" },
+    { id:'additionner3Entiers', name:"Additionner 3 entiers" },
+    { id:'additionner4Entiers', name:"Additionner 4 entiers" },
+    { id:'additionsDecimaux', name:"Additionner des décimaux" },
+    { id:'additionATrous', name:"Équation à trou — addition (□ + 7 = 15)" },
+    { id:'additionFractions', name:"Additionner des fractions" },
   ],
   sub: [
-    { id:'sub_all_int',   name:'Soustractions variées (entiers)',                                sub:null },
-    { id:'sub_all_dec',   name:'Soustractions variées (décimaux)',                               sub:null },
-    { id:'sub_2_int',     name:'Soustraire 2 entiers (< 10, < 100 ou < 1000)',                  sub:['< 10','< 100','< 1000'] },
-    { id:'sub_mult10',    name:'Soustraire des multiples de 10',                                 sub:null },
-    { id:'sub_mult5_10',  name:'Soustraire des multiples de 5 ou 10',                           sub:null },
-    { id:'sub_fin9',      name:'Soustraire un nombre finissant par 9',                          sub:null },
-    { id:'sub_fin89',     name:'Soustraire un nombre finissant par 8 ou 9',                     sub:null },
-    { id:'sub_3_int',     name:'Soustraire 3 entiers (< 10, < 100 ou < 1000)',                  sub:['< 10','< 100','< 1000'] },
-    { id:'sub_4_int',     name:'Soustraire 4 entiers (< 10, < 100 ou < 1000)',                  sub:['< 10','< 100','< 1000'] },
-    { id:'sub_int_dec',   name:'Soustraire un entier et un décimal',                            sub:null },
-    { id:'sub_dec_dec',   name:'Soustraire des décimaux',                                       sub:null },
-    { id:'sub_frac',      name:'Soustraire des fractions (même dénominateur)',                   sub:['Dén. ≤ 5','Dén. ≤ 10','Dén. ≤ 20'], frac:true },
-    { id:'frac_sub_ent',  name:'Soustraire une fraction à un entier (1 − 1/4)',                 sub:null, frac:true },
-    { id:'sub_trou',      name:'Équation à trou — soustraction (23 − □ = 9)',                   sub:null },
+    { id:'soustraction2Multiples10', name:"Soustraire des multiples de 10" },
+    { id:'soustraction2Multiples5ou10', name:"Soustraire des multiples de 5 ou 10" },
+    { id:'soustractionFinissantPar9', name:"Soustraire un nombre finissant par 9" },
+    { id:'soustractionFinissantPar8ou9', name:"Soustraire un nombre finissant par 8 ou 9" },
+    { id:'soustraire1EntierA1', name:"Soustraire 1 entier" },
+    { id:'soustraire2EntiersA1', name:"Soustraire 2 entiers" },
+    { id:'soustraire3EntiersA1', name:"Soustraire 3 entiers" },
+    { id:'soustractionsDecimaux', name:"Soustraire des décimaux" },
+    { id:'equationATrousSoustraction', name:"Équation à trou — soustraction (23 − □ = 9)" },
+    { id:'soustractionFractions', name:"Soustraire des fractions" },
   ],
   mul: [
-    { id:'mul_all_int',    name:'Multiplications variées (entiers)',                             sub:null },
-    { id:'mul_all_dec',    name:'Multiplications variées (décimaux)',                            sub:null },
-    { id:'mul_tables',     name:'Tables de multiplication',                                      sub:null },
-    { id:'mul_10_100',     name:'Multiplier par 10, 100 ou 1000',                               sub:['× 10','× 100','× 1000','Au hasard'] },
-    { id:'mul_par2',       name:'Multiplier par 2 (doubler)',                                   sub:null },
-    { id:'mul_par4',       name:'Multiplier par 4',                                             sub:null },
-    { id:'mul_par5_25_50', name:'Multiplier par 5, 25 ou 50',                                   sub:['× 5','× 25','× 50','Au hasard'] },
-    { id:'mul_derivee',    name:'Multiplications dérivées (6×30, 7×400…)',                      sub:null },
-    { id:'mul_distrib',    name:'Distributivité simple (12×9 = 12×10−12)',                      sub:null },
-    { id:'mul_dec_int',    name:'Multiplier un décimal par un entier',                          sub:null },
-    { id:'mul_trou',       name:'Équation à trou — multiplication (4 × □ = 36)',                sub:null },
+    { id:'tablesMultiplication', name:"Tables de multiplication" },
+    { id:'tablesMultiplicationATrou', name:"Tables de multiplication à trou (4 × □ = 36)" },
+    { id:'multiplierPar10_100_1000', name:"Multiplier par 10, 100 ou 1000" },
+    { id:'doubler', name:"Doubler (× 2)" },
+    { id:'quadrupler', name:"Multiplier par 4" },
+    { id:'multiplier5_25_50', name:"Multiplier par 5, 25 ou 50" },
+    { id:'multiplier9ou11', name:"Multiplier par 9 ou 11" },
+    { id:'multiplicationsVarieesEntiers', name:"Multiplications variées (entiers)" },
+    { id:'equationATrousMultiplication', name:"Équation à trou — multiplication" },
+    { id:'multiplicationsVarieesDecimaux', name:"Multiplications variées (décimaux)" },
   ],
   div: [
-    { id:'div_all_int',    name:'Divisions variées (entiers)',                                   sub:null },
-    { id:'div_all_dec',    name:'Divisions variées (décimaux)',                                  sub:null },
-    { id:'div_pair_2',     name:'Diviser un nombre pair par 2',                                 sub:null },
-    { id:'div_impair_2',   name:'Diviser par 2 (pair ou impair)',                               sub:null },
-    { id:'div_248_ent',    name:'Diviser par 2, 4 ou 8 (résultat entier)',                      sub:null },
-    { id:'div_248_dec',    name:'Diviser par 2, 4 ou 8 (avec décimaux)',                        sub:null },
-    { id:'div_10_100',     name:'Diviser par 10, 100 ou 1000',                                  sub:['÷ 10','÷ 100','÷ 1000','Au hasard'] },
-    { id:'div_derivee',    name:'Divisions dérivées des tables (420 ÷ 7, 360 ÷ 9…)',           sub:null },
-    { id:'div_5_25_50',    name:'Diviser par 5, 25 ou 50',                                      sub:['÷ 5','÷ 25','÷ 50','Au hasard'] },
-    { id:'div_moitie',     name:'Trouver la moitié (entiers et décimaux)',                      sub:null },
-    { id:'div_dec_entier', name:'Décimal ÷ entier simple (4,8 ÷ 4)',                            sub:null },
-    { id:'div_quot_rest',  name:'Quotient et reste (division euclidienne)',                      sub:null, dual:true },
-    { id:'div_trou',       name:'Équation à trou — division (30 ÷ □ = 5)',                      sub:null },
+    { id:'moitie', name:"Trouver la moitié" },
+    { id:'quart', name:"Trouver le quart" },
+    { id:'diviserPar10_100_1000', name:"Diviser par 10, 100 ou 1000" },
+    { id:'diviser5_25_50', name:"Diviser par 5, 25 ou 50" },
+    { id:'divisionQuotientReste', name:"Quotient et reste (division euclidienne)" },
+    { id:'diviserPar2ou4', name:"Diviser par 2 ou 4" },
+    { id:'diviserParDecimal', name:"Diviser par un décimal" },
   ],
   mesure: [
-    { id:'mes_longueur',   name:'Conversions de longueur (km, m, cm, mm)',                      sub:null },
-    { id:'mes_masse',      name:'Conversions de masse (kg, g, t)',                              sub:null },
-    { id:'mes_duree_conv',  name:'Conversions de durées (h, min, s)',                           sub:null },
-    { id:'mes_duree_calc',  name:'Calculs de durée entre deux heures',                         sub:null },
-    { id:'mes_contenance', name:'Conversions de contenance (L, cL, mL, m³)',                   sub:null },
-    { id:'mes_perimetre',  name:'Périmètres simples (carré, rectangle)',                        sub:null },
-    { id:'mes_monnaie',    name:'Rendu de monnaie et calculs de prix',                         sub:null },
+    { id:'longueurs', name:"Conversions de longueurs" },
+    { id:'masses', name:"Conversions de masses" },
+    { id:'contenances', name:"Conversions de contenances" },
+    { id:'dureesConversions', name:"Conversions de durées (h, min, s)" },
+    { id:'dureesEntre2Heures', name:"Durée entre deux heures" },
+    { id:'dureesOperations', name:"Opérations sur des durées" },
+    { id:'monnaieRendu', name:"Rendu de monnaie et prix" },
   ],
   estimation: [
-    { id:'est_arrondi',    name:"Arrondir un nombre (entier, dixième, centième)",               sub:null },
-    { id:'est_somme',      name:'Estimer une somme ou différence',                              sub:null },
-    { id:'est_produit',    name:'Estimer un produit',                                           sub:null },
-    { id:'est_quotient',   name:'Estimer un quotient',                                          sub:null },
-    { id:'est_plausible',  name:'Résultat plausible ? (choisir la bonne réponse)',              sub:null },
-  ],
-  suite: [
-    { id:'suite_add',      name:'Suite additive (+ ou − constante)',                            sub:null },
-    { id:'suite_mul',      name:'Suite multiplicative (×2, ×3…)',                               sub:null },
-    { id:'suite_mixte',    name:'Suite mixte (×2 +1, ÷2 +3…)',                                 sub:null },
-  ],
-  proport: [
-    { id:'prop_4eme',      name:'Quatrième proportionnelle (règle de 3)',                       sub:null },
-    { id:'prop_pct',       name:'Calculer un pourcentage simple (10%, 25%, 50%)',               sub:null },
+    { id:'arrondir', name:"Arrondir un nombre" },
+    { id:'estimerSomme', name:"Estimer une somme" },
+    { id:'estimerDifference', name:"Estimer une différence" },
+    { id:'estimerProduit', name:"Estimer un produit" },
+    { id:'resultatPlausible', name:"Résultat plausible ? (choisir la bonne réponse)" },
   ],
 };
 
-const CAT_ICONS = { add:'➕', sub:'➖', mul:'✖️', div:'➗', mesure:'📏', estimation:'≈', suite:'🔢', proport:'%' };
-const CAT_NAMES = { add:'Addition', sub:'Soustraction', mul:'Multiplication', div:'Division', mesure:'Grandeurs', estimation:'Estimation', suite:'Suites', proport:'Proportionnalité' };
+const CAT_ICONS = { add:'➕', sub:'➖', mul:'✖️', div:'➗', mesure:'📏', estimation:'≈' };
+const CAT_NAMES = { add:'Addition', sub:'Soustraction', mul:'Multiplication', div:'Division', mesure:'Grandeurs', estimation:'Estimation' };
 
 // ================================================================
 // STATE
@@ -4042,93 +3984,8 @@ function nav(screenNum, dir='fwd') {
   document.querySelectorAll('.screen').forEach(s=>{s.classList.remove('active','anim-fwd','anim-back');});
   const s=document.getElementById('s'+screenNum);
   s.classList.add('active', dir==='back'?'anim-back':'anim-fwd');
-  if(screenNum===3) applyTablesLock();
   window.scrollTo(0,0);
 }
-function applyTablesLock() {
-  const LOCKED_TYPES = { 'mul_tables': 'Tables de multiplication', 'add_maison': 'Maisons des nombres',
-    'suite_add': 'Suites additives', 'suite_mul': 'Suites multiplicatives', 'suite_mixte': 'Suites mixtes',
-    'est_plausible': 'Résultat plausible' };
-  const isLocked = selTypeId in LOCKED_TYPES;
-  const timeChipsEl = document.getElementById('timeChips');
-  const chips = timeChipsEl.querySelectorAll('.chip-btn');
-
-  // Remove any existing inline notice
-  const oldNotice = document.getElementById('tablesLockNotice');
-  if(oldNotice) oldNotice.remove();
-
-  if(isLocked){
-    // No level chosen yet for mul_tables → hide all chips completely
-    if(selTypeId==='mul_tables' && !selLevel){
-      chips.forEach(b=>{b.style.display='none';});
-      const tmp=document.getElementById('tmpFixedChip');if(tmp)tmp.remove();
-      const lbl=document.getElementById('tablesLevelLabel');if(lbl)lbl.remove();
-      return;
-    }
-    // Determine fixed time
-    let fixedTime;
-    if(selTypeId==='mul_tables'){
-      fixedTime=[10,7,5,3][selLevel-1]||7;
-    } else if(['suite_add','suite_mul','suite_mixte','est_plausible'].includes(selTypeId)){
-      fixedTime=30;
-    } else {
-      fixedTime=5;
-    }
-    timePerQ=fixedTime;
-
-    // Hide all chips
-    const vals=[5,10,15,20,30,45,60,75,90,120];
-    chips.forEach(b=>b.style.display='none');
-
-    // Build chip label — just the time, no level name inside
-    const chipLabel=fixedTime+' s';
-
-    // Show/create the chip
-    let shownChip=null;
-    chips.forEach((b,i)=>{if(vals[i]===fixedTime){shownChip=b;}});
-    const tmp=document.getElementById('tmpFixedChip');if(tmp)tmp.remove();
-    if(shownChip){
-      shownChip.style.display='';
-      shownChip.classList.add('selected');
-      shownChip.disabled=true;
-      shownChip.style.cursor='default';
-      shownChip.textContent=chipLabel;
-    } else {
-      const t=document.createElement('button');
-      t.className='chip-btn selected';
-      t.id='tmpFixedChip';
-      t.disabled=true;t.style.cursor='default';
-      t.textContent=chipLabel;
-      timeChipsEl.appendChild(t);
-    }
-
-    // Add level label NEXT TO the chip (inside chip-row)
-    const oldLbl=document.getElementById('tablesLevelLabel');if(oldLbl)oldLbl.remove();
-    if(selTypeId==='mul_tables' && selLevel){
-      const lvNames={1:'Débutant',2:'Intermédiaire',3:'Confirmé',4:'Expert'};
-      const lbl=document.createElement('span');
-      lbl.id='tablesLevelLabel';
-      lbl.style.cssText='font-size:0.82rem;font-weight:700;color:var(--accent2);align-self:center;white-space:nowrap;';
-      lbl.textContent='('+lvNames[selLevel]+')';
-      timeChipsEl.appendChild(lbl);
-    }
-
-  } else {
-    // Restore all chips and their original labels
-    const origLabels=['5 s','10 s','15 s','20 s','30 s','45 s','1 min','1 min 15','1 min 30','2 min'];
-    chips.forEach((b,i) => {
-      b.style.display = '';
-      b.disabled = false;
-      b.style.opacity = '';
-      b.style.cursor = '';
-      if(origLabels[i]) b.textContent=origLabels[i];
-    });
-    const tmp=document.getElementById('tmpFixedChip');if(tmp)tmp.remove();
-    const lbl=document.getElementById('tablesLevelLabel');if(lbl)lbl.remove();
-    setTime(timePerQ);
-  }
-}
-
 // ================================================================
 // SCREEN 1 → 2 : select category
 // ================================================================
@@ -4138,7 +3995,7 @@ let s3Origin = 2; // which screen s3 back button goes to (2 or '1b')
 function goBackFromS2(){ nav(s2Origin,'back'); }
 function goBackFromS3(){ nav(s3Origin,'back'); }
 
-const EXTRA_CATS = ['mesure','estimation','suite','proport'];
+const EXTRA_CATS = ['mesure','estimation'];
 
 function openAutres(){
   renderAutresList();
@@ -4157,7 +4014,7 @@ function renderAutresList(){
     titleEl.className = 'autres-section-title';
     titleEl.style.setProperty('--clr-active', `var(--${cat === 'frac' ? 'c77dff' : cat})`);
     // Map cat to color
-    const catColors = { mesure:'#4ecdc4', estimation:'#ff9f43', suite:'#ee5a24', proport:'#0652dd' };
+    const catColors = { mesure:'#4ecdc4', estimation:'#ff9f43' };
     titleEl.style.color = catColors[cat];
     titleEl.textContent = CAT_NAMES[cat];
     container.appendChild(titleEl);
@@ -4198,12 +4055,7 @@ function selectTypeFromAutres(cat, t){
 
   document.body.className = 'cat-' + cat;
 
-  // If sub-options, show modal; otherwise go to s3
-  if(t.sub && t.sub.length > 0){
-    showSubModal(t);
-  } else {
-    setTimeout(() => nav(3,'fwd'), 140);
-  }
+  setTimeout(() => nav(3,'fwd'), 140);
 }
 
 function selectCat(cat) {
@@ -4211,7 +4063,7 @@ function selectCat(cat) {
   document.body.className='cat-'+cat;
 
   // Track which screen we came from
-  const extras = ['frac','mesure','estimation','suite','proport'];
+  const extras = ['mesure','estimation'];
   s2Origin = extras.includes(cat) ? '1b' : 1;
 
   // update badge
@@ -4246,163 +4098,15 @@ function selectType(tid) {
   document.querySelectorAll('.type-card').forEach(el=>{
     el.classList.toggle('selected',el.dataset.tid===tid);
   });
-  const t=TYPES[selCat].find(x=>x.id===tid);
-  if(t.id==='mul_tables'){
-    showTablesModal();
-  } else if(t && t.sub && t.sub.length>0){
-    showSubModal(t);
-  } else {
-    setTimeout(()=>nav(3,'fwd'),140);
-  }
-}
-
-function showTablesModal(){
-  const old=document.getElementById('tablesModal');
-  if(old)old.remove();
-  selTableSet=[];
-
-  const modal=document.createElement('div');
-  modal.id='tablesModal';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;';
-
-  const box=document.createElement('div');
-  box.style.cssText='background:var(--card);border-radius:20px;padding:22px 20px;width:100%;max-width:380px;border:2px solid var(--mul);';
-
-  const title=document.createElement('div');
-  title.style.cssText='font-size:0.72rem;font-weight:800;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:14px;';
-  title.textContent='Choisir les tables à travailler';
-  box.appendChild(title);
-
-  const baseBtn='padding:10px 6px;border-radius:10px;border:2px solid var(--surface);background:var(--surface);color:var(--text);font-family:Nunito,sans-serif;font-size:0.95rem;font-weight:700;cursor:pointer;transition:all 0.13s;';
-  const activeExtra='border-color:var(--mul)!important;color:var(--mul)!important;background:color-mix(in srgb,var(--mul) 12%,var(--card))!important;';
-
-  function setActive(btn,on){
-    btn.style.cssText=baseBtn+(on?'border-color:var(--mul);color:var(--mul);background:color-mix(in srgb,var(--mul) 12%,var(--card));':'');
-  }
-
-  // Individual table buttons (11 buttons 2-12)
-  const grid=document.createElement('div');
-  grid.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;';
-  const tables=[2,3,4,5,6,7,8,9,11,12];
-  const tBtns={};
-  tables.forEach(n=>{
-    const btn=document.createElement('button');
-    btn.style.cssText=baseBtn;
-    btn.textContent='×'+n;
-    btn.onclick=()=>{
-      if(selTableSet.includes(n)){selTableSet=selTableSet.filter(x=>x!==n);}
-      else{selTableSet.push(n);}
-      setActive(btn,selTableSet.includes(n));
-      syncPresets();
-    };
-    tBtns[n]=btn;
-    grid.appendChild(btn);
-  });
-  box.appendChild(grid);
-
-  // 4 preset buttons
-  const presets=[
-    {label:'Tables de 2 à 5',set:[2,3,4,5]},
-    {label:'Tables de 6 à 9',set:[6,7,8,9]},
-    {label:'Tables de 2 à 9',set:[2,3,4,5,6,7,8,9]},
-    {label:'Toutes les tables',set:[2,3,4,5,6,7,8,9,10,11,12]},
-  ];
-  const pGrid=document.createElement('div');
-  pGrid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;';
-  const pBtns=[];
-  presets.forEach(p=>{
-    const btn=document.createElement('button');
-    btn.style.cssText='padding:9px 8px;border-radius:10px;border:2px solid var(--surface);background:var(--surface);color:var(--text);font-family:Nunito,sans-serif;font-size:0.75rem;font-weight:700;cursor:pointer;transition:all 0.13s;';
-    btn.textContent=p.label;
-    btn.onclick=()=>{
-      selTableSet=[...p.set];
-      tables.forEach(n=>setActive(tBtns[n],selTableSet.includes(n)));
-      syncPresets();
-    };
-    pBtns.push({btn,set:p.set});
-    pGrid.appendChild(btn);
-  });
-  box.appendChild(pGrid);
-
-  function syncPresets(){
-    pBtns.forEach(({btn,set})=>{
-      const on=set.length===selTableSet.length&&set.every(x=>selTableSet.includes(x));
-      btn.style.borderColor=on?'var(--mul)':'var(--surface)';
-      btn.style.color=on?'var(--mul)':'var(--text)';
-      btn.style.background=on?'color-mix(in srgb,var(--mul) 12%,var(--card))':'var(--surface)';
-    });
-  }
-
-  // Cancel / Validate
-  const row=document.createElement('div');
-  row.style.cssText='display:flex;gap:10px;';
-  const cancel=document.createElement('button');
-  cancel.style.cssText='flex:1;padding:12px;border-radius:50px;border:2px solid var(--surface);background:var(--surface);color:var(--muted);font-family:Nunito,sans-serif;font-size:0.9rem;font-weight:800;cursor:pointer;';
-  cancel.textContent='← Annuler';
-  cancel.onclick=()=>modal.remove();
-  const ok=document.createElement('button');
-  ok.style.cssText='flex:1;padding:12px;border-radius:50px;border:none;background:linear-gradient(135deg,var(--accent1),var(--accent2));color:#1a0a00;font-family:Nunito,sans-serif;font-size:0.9rem;font-weight:800;cursor:pointer;';
-  ok.textContent='✔ Valider';
-  ok.onclick=()=>{
-    if(selTableSet.length===0)selTableSet=[2,3,4,5,6,7,8,9,10,11,12];
-    modal.remove();
-    setTimeout(()=>nav(3,'fwd'),100);
-  };
-  row.appendChild(cancel);row.appendChild(ok);
-  box.appendChild(row);
-
-  modal.appendChild(box);
-  modal.onclick=(e)=>{if(e.target===modal)modal.remove();};
-  document.body.appendChild(modal);
-}
-function showSubModal(t){
-  const old=document.getElementById('subModal');
-  if(old)old.remove();
-  const modal=document.createElement('div');
-  modal.id='subModal';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.72);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;';
-  const box=document.createElement('div');
-  box.style.cssText='background:var(--card);border-radius:20px;padding:22px 18px;width:100%;max-width:360px;border:2px solid var(--clr-active,var(--accent4));';
-  const title=document.createElement('div');
-  title.style.cssText='font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:14px;';
-  title.textContent='Choisir la variante';
-  box.appendChild(title);
-  const grid=document.createElement('div');
-  grid.style.cssText='display:flex;flex-wrap:wrap;gap:8px;';
-  t.sub.forEach((s,i)=>{
-    const btn=document.createElement('button');
-    btn.style.cssText='padding:10px 16px;border-radius:50px;border:2px solid var(--surface);background:var(--surface);color:var(--text);font-family:Nunito,sans-serif;font-size:0.88rem;font-weight:700;cursor:pointer;';
-    btn.textContent=s;
-    btn.onclick=()=>{selSubIdx=i;modal.remove();setTimeout(()=>nav(3,'fwd'),100);};
-    grid.appendChild(btn);
-  });
-  box.appendChild(grid);
-  const cancel=document.createElement('button');
-  cancel.style.cssText='margin-top:14px;width:100%;padding:10px;border-radius:50px;border:none;background:var(--surface);color:var(--muted);font-family:Nunito,sans-serif;font-size:0.85rem;font-weight:700;cursor:pointer;';
-  cancel.textContent='← Annuler';
-  cancel.onclick=()=>modal.remove();
-  box.appendChild(cancel);
-  modal.appendChild(box);
-  modal.onclick=(e)=>{if(e.target===modal)modal.remove();};
-  document.body.appendChild(modal);
+  setTimeout(()=>nav(3,'fwd'),140);
 }
 
 // ================================================================
 // SCREEN 3 : level + settings
 // ================================================================
-function selectLevel(lv){
-  selLevel=lv;
-  document.querySelectorAll('.lvl-card').forEach(c=>c.classList.toggle('selected',parseInt(c.dataset.lv)===lv));
-  if(selTypeId==='mul_tables') applyTablesLock();
-}
-function setTime(n){
-  timePerQ=n;
-  const vals=[5,10,15,20,30,45,60,75,90,120];
-  document.querySelectorAll('#timeChips .chip-btn').forEach((b,i)=>b.classList.toggle('selected',vals[i]===n));
-}
 function setNbQ(n){
   nbQ=n;
-  document.querySelectorAll('#nbChips .chip-btn').forEach((b,i)=>b.classList.toggle('selected',[5,10,15,20,30][i]===n));
+  document.querySelectorAll('#nbChips .chip-btn').forEach((b,i)=>b.classList.toggle('selected',[5,10,20,30][i]===n));
 }
 
 // ================================================================
@@ -6316,7 +6020,7 @@ function showFb(txt){
 })();
 
 // Init defaults
-setTime(10);setNbQ(10);
+setNbQ(10);
 document.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&document.getElementById('s4').classList.contains('active')&&!answered)submitAnswer();
 });
