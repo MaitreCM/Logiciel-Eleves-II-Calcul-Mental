@@ -478,6 +478,7 @@ body {
   margin-bottom: 12px;
 }
 .dual-answer .answer-input { font-size: 1.5rem; }
+.consigne { width:100%; text-align:center; font-size:1.05rem; font-weight:800; color:var(--accent2); margin:-4px 0 14px; }
 .choice-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; width:100%; margin-bottom:12px; }
 .choice-btn { padding:22px 10px; border-radius:16px; border:2px solid var(--surface); background:var(--card); color:var(--text); font-family:'Fredoka One',cursive; font-size:1.8rem; cursor:pointer; transition:all 0.13s; }
 .choice-btn:hover { border-color:var(--accent2); }
@@ -2908,37 +2909,61 @@ function genArrondir(config) {
 function genEstimerSomme(config) {
   const { nbTermes, max, arrondiA, decimals } = config;
   const pas = { unite: 1, dizaine: 10, centaine: 100 }[arrondiA];
-  const tirer = () => decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
+  // L'élève arrondit d'abord CHAQUE terme, puis calcule : on évite donc les termes pile à mi-chemin
+  // (ex. 35 à la dizaine, 4,5 à l'unité) et les termes plus petits que le pas (qui s'arrondiraient à 0).
+  const tirer = () => {
+    let v;
+    for (let i = 0; i < 200; i++) {
+      v = decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
+      if (v >= pas && !estAmbigu(v, pas)) return v;
+    }
+    return v;
+  };
   const termes = Array.from({ length: nbTermes }, tirer);
-  const somme = Math.round(termes.reduce((s, n) => s + n, 0) * 1000) / 1000;
-  return { text: termes.join(' + '), answer: arrondirValeur(somme, pas), ambigu: estAmbigu(somme, pas), altAnswer: estAmbigu(somme, pas) ? arrondirValeur(somme, pas) - pas : undefined };
+  const answer = Math.round(termes.reduce((s, n) => s + arrondirValeur(n, pas), 0) * 1000) / 1000;
+  return { text: termes.join(' + '), answer, ambigu: false };
 }
 
 function genEstimerDifference(config) {
   const { mode, nbTermesSoustraits, max, decimals, arrondiA } = config;
   const pas = { unite: 1, dizaine: 10, centaine: 100 }[arrondiA];
-  const tirer = () => decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
+  // Même principe que pour la somme : l'élève arrondit chaque terme, puis soustrait.
+  const valide = n => n >= pas && !estAmbigu(n, pas);
+  const tirer = () => {
+    let v;
+    for (let i = 0; i < 200; i++) {
+      v = decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
+      if (valide(v)) return v;
+    }
+    return v;
+  };
 
   let texte, resultat;
   if (mode === 'simple') {
-    let a = tirer(), b = tirer();
-    if (b > a) [a, b] = [b, a]; // interdire les résultats négatifs
-    resultat = Math.round((a - b) * 1000) / 1000;
-    texte = `${a} - ${b}`;
-  } else {
-    const a = randInt(nbTermesSoustraits + 1, max - 1);
-    const termes = [];
-    let reste = a;
-    for (let i = 0; i < nbTermesSoustraits; i++) {
-      const t = randInt(1, Math.max(1, reste - 1));
-      termes.push(t);
-      reste -= t;
+    for (let essai = 0; essai < 100; essai++) {
+      let a = tirer(), b = tirer();
+      if (b > a) [a, b] = [b, a]; // interdire les résultats négatifs
+      resultat = Math.round((arrondirValeur(a, pas) - arrondirValeur(b, pas)) * 1000) / 1000;
+      texte = `${a} - ${b}`;
+      if (resultat > 0) break; // éviter "34 - 31" (→ 0) qui n'apprend rien
     }
-    resultat = a - termes.reduce((s, n) => s + n, 0);
-    texte = `${a} - ${termes.join(' - ')}`;
+  } else {
+    for (let essai = 0; essai < 500; essai++) {
+      const a = randInt(nbTermesSoustraits + 1, max - 1);
+      const termes = [];
+      let reste = a;
+      for (let i = 0; i < nbTermesSoustraits; i++) {
+        const t = randInt(1, Math.max(1, reste - 1));
+        termes.push(t);
+        reste -= t;
+      }
+      resultat = arrondirValeur(a, pas) - termes.reduce((s, n) => s + arrondirValeur(n, pas), 0);
+      texte = `${a} - ${termes.join(' - ')}`;
+      if ([a, ...termes].every(valide) && resultat > 0) break;
+    }
   }
 
-  return { text: texte, answer: arrondirValeur(resultat, pas), ambigu: estAmbigu(resultat, pas), altAnswer: estAmbigu(resultat, pas) ? arrondirValeur(resultat, pas) - pas : undefined };
+  return { text: texte, answer: resultat, ambigu: false };
 }
 
 function genEstimerProduit(config) {
@@ -3542,6 +3567,7 @@ window.MoteurAdaptatif = {
   <div class="question-card" id="questionCard">
     <div class="question-text" id="qText">?</div>
   </div>
+  <div class="consigne" id="qConsigne" style="display:none;"></div>
 
   <!-- Fraction display -->
   <div id="fracDisplay" style="display:none; width:100%; margin-bottom:16px;">
@@ -5315,7 +5341,7 @@ function tempsEcoule(){
 }
 
 // ---- Couche d'adaptation : format MoteurCM.genQ -> format attendu par l'écran de jeu ----
-function adapterQuestion(raw, subId){
+function adapterQuestion(raw, subId, palier){
   const estDec = v => typeof v==='number' && !Number.isInteger(v);
   const q = {raw, subId, text: raw.text+(raw.noSuffix?'':' = ?'), hint:'', allowDec:false,
              isDual:false, isMaison:false, isFrac:false, isChoice:false};
@@ -5336,6 +5362,27 @@ function adapterQuestion(raw, subId){
   if(subId==='maisonsDesNombres' && raw.cible!==undefined){
     q.isMaison=true; q.maisonTgt=raw.cible; q.maisonDisplay=raw.connu+' + …'; q.text=q.maisonDisplay;
   }
+  // --- Consignes d'estimation : préciser À QUOI arrondir et QUOI arrondir ---
+  const NOM={unite:"à l'unité", dizaine:'à la dizaine', centaine:'à la centaine', millier:'au millier'};
+  const nomPas=p=>NOM[p===1?'unite':p===10?'dizaine':p===100?'centaine':'millier'];
+  const cfg=((MoteurCM.paliersConfig[subId]||[])[palier-1])||{};
+  if(subId==='arrondir'){
+    q.text=raw.text.replace('à la millier','au millier'); // (faute de genre dans le moteur)
+    q.consigne='Écris le nombre arrondi';
+  } else if(subId==='estimerSomme'||subId==='estimerDifference'){
+    q.text=raw.text+' ≈ ?';
+    q.consigne='Arrondis chaque nombre '+NOM[cfg.arrondiA]+', puis calcule';
+  } else if(subId==='estimerProduit'){
+    q.text=raw.text+' ≈ ?';
+    const nom=cfg.pas?nomPas(cfg.pas):"à l'unité";
+    const premier=(raw.text.match(/^[\d.]+/)||[''])[0];
+    if(cfg.mode==='doubler'||cfg.mode==='parEntierPetit') q.consigne='Arrondis '+premier+' '+nom+', puis calcule';
+    else if(cfg.mode==='decimalParEntier') q.consigne='Arrondis le décimal '+nom+', puis calcule';
+    else q.consigne='Arrondis chaque nombre '+nom+', puis calcule';
+  }
+  // Affichage à la française : virgule décimale (le moteur écrit "3.5")
+  q.text=q.text.replace(/(\d)\.(\d)/g,'$1,$2');
+  if(q.consigne) q.consigne=q.consigne.replace(/(\d)\.(\d)/g,'$1,$2');
   return q;
 }
 
@@ -5351,7 +5398,7 @@ function cleDedoublonnage(q){
 function genererQuestion(){
   let q=null;
   for(let i=0;i<60;i++){
-    q=adapterQuestion(MoteurCM.genQ(selTypeId, etatProg.palier), selTypeId);
+    q=adapterQuestion(MoteurCM.genQ(selTypeId, etatProg.palier), selTypeId, etatProg.palier);
     const k=cleDedoublonnage(q);
     if(!seenKeys.has(k)){ seenKeys.add(k); return q; }
   }
@@ -5517,6 +5564,9 @@ function showQuestion(){
     document.getElementById('qText').textContent=q.text;
     setTimeout(autoFitQuestion,10);
   }
+
+  const cs=document.getElementById('qConsigne');
+  cs.textContent=q.consigne||''; cs.style.display=q.consigne?'block':'none';
 
   // Quel type de zone de réponse ?
   document.getElementById('normalAnswer').style.display=(isDual||q.isChoice)?'none':'block';
@@ -5729,7 +5779,7 @@ function formatMulti(vals,labels){
 
 function recordAns(given,ok,skipped){
   const cq=questions[curQ];
-  answers.push({q:cq.isFrac?fracLabel(cq):cq.text, ans:cq.answer, values:cq.values, labels:cq.labels||[],
+  answers.push({q:(cq.isFrac?fracLabel(cq):cq.text)+(cq.consigne?' ('+cq.consigne+')':''), ans:cq.answer, values:cq.values, labels:cq.labels||[],
                 given, ok, skipped, isDual:cq.isDual});
 }
 
@@ -5778,6 +5828,7 @@ function togglePause(){
     document.getElementById('normalAnswer').style.visibility='hidden';
     document.getElementById('dualAnswer').style.visibility='hidden';
     document.getElementById('choiceAnswer').style.visibility='hidden';
+    document.getElementById('qConsigne').style.visibility='hidden';
     document.getElementById('numpad').style.visibility='hidden';
     document.getElementById('autoSubmitMsg').style.visibility='hidden';
     // Show pause overlay
@@ -5802,6 +5853,7 @@ function togglePause(){
     document.getElementById('normalAnswer').style.visibility='';
     document.getElementById('dualAnswer').style.visibility='';
     document.getElementById('choiceAnswer').style.visibility='';
+    document.getElementById('qConsigne').style.visibility='';
     document.getElementById('numpad').style.visibility='';
     document.getElementById('autoSubmitMsg').style.visibility='';
     reprendreChrono(); // le temps passé en pause n'est jamais compté
