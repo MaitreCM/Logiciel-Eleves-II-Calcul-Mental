@@ -478,6 +478,11 @@ body {
   margin-bottom: 12px;
 }
 .dual-answer .answer-input { font-size: 1.5rem; }
+.choice-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; width:100%; margin-bottom:12px; }
+.choice-btn { padding:22px 10px; border-radius:16px; border:2px solid var(--surface); background:var(--card); color:var(--text); font-family:'Fredoka One',cursive; font-size:1.8rem; cursor:pointer; transition:all 0.13s; }
+.choice-btn:hover { border-color:var(--accent2); }
+.choice-btn.correct { border-color:var(--accent3); background:color-mix(in srgb, var(--accent3) 15%, var(--card)); }
+.choice-btn.wrong { border-color:var(--accent1); background:color-mix(in srgb, var(--accent1) 12%, var(--card)); animation:shake 0.3s; }
 .dual-label { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); text-align: center; margin-bottom: 3px; }
 
 /* Numpad */
@@ -3525,20 +3530,11 @@ window.MoteurAdaptatif = {
     <div class="g-chip">Q <span id="gQNum">1</span>/<span id="gQTotal">10</span></div>
     <div class="g-chip">✅ <span id="gScore">0</span></div>
     <button class="g-chip g-chip-pause" id="pauseBtn" onclick="togglePause()">⏸ Pause</button>
-    <div class="g-chip" id="gLvLabel">Débutant</div>
   </div>
   <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
 
   <!-- Timer + Calcul X/Y side by side -->
   <div class="timer-row">
-    <div class="timer-wrap">
-      <svg class="timer-svg" width="96" height="96" viewBox="0 0 96 96">
-        <circle class="timer-bg" cx="48" cy="48" r="41"/>
-        <circle class="timer-arc" id="timerArc" cx="48" cy="48" r="41"
-          stroke-dasharray="257.6" stroke-dashoffset="0" stroke="var(--accent4)"/>
-      </svg>
-      <div class="timer-text" id="timerText">10</div>
-    </div>
     <div class="calcul-label" id="calculLabel">Calcul 1/10</div>
   </div>
 
@@ -3592,17 +3588,31 @@ window.MoteurAdaptatif = {
   </div>
 
   <div id="dualAnswer" style="display:none;">
-    <div class="dual-answer">
-      <div>
+    <div class="dual-answer" id="dualGrid">
+      <div id="dualCellQ">
         <div class="dual-label">Quotient</div>
         <input type="text" inputmode="none" class="answer-input" id="ansQ"
-          placeholder="?" autocomplete="off" readonly onkeydown="handleKeyDual(event,'q')" oninput="checkAutoSubmitDualQuotient()">
+          placeholder="?" autocomplete="off" readonly onkeydown="handleKeyDual(event,0)" oninput="checkAutoSubmitDual(0)">
       </div>
-      <div>
+      <div id="dualCellR">
         <div class="dual-label">Reste</div>
         <input type="text" inputmode="none" class="answer-input" id="ansR"
-          placeholder="?" autocomplete="off" readonly onkeydown="handleKeyDual(event,'r')" oninput="checkAutoSubmitDualReste()">
+          placeholder="?" autocomplete="off" readonly onkeydown="handleKeyDual(event,1)" oninput="checkAutoSubmitDual(1)">
       </div>
+      <div id="dualCellT" style="display:none;">
+        <div class="dual-label">s</div>
+        <input type="text" inputmode="none" class="answer-input" id="ansT"
+          placeholder="?" autocomplete="off" readonly onkeydown="handleKeyDual(event,2)" oninput="checkAutoSubmitDual(2)">
+      </div>
+    </div>
+  </div>
+
+  <div id="choiceAnswer" style="display:none;">
+    <div class="choice-grid">
+      <button class="choice-btn" id="ch0" onclick="choisirOption(0)">?</button>
+      <button class="choice-btn" id="ch1" onclick="choisirOption(1)">?</button>
+      <button class="choice-btn" id="ch2" onclick="choisirOption(2)">?</button>
+      <button class="choice-btn" id="ch3" onclick="choisirOption(3)">?</button>
     </div>
   </div>
 
@@ -3650,7 +3660,7 @@ window.MoteurAdaptatif = {
   <div class="stats-grid">
     <div class="stat-card"><div class="stat-val" style="color:var(--accent3)" id="stCorrect">0</div><div class="stat-lbl">Correctes</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--accent1)" id="stWrong">0</div><div class="stat-lbl">Erreurs</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--accent2)" id="stSkip">0</div><div class="stat-lbl">Passées</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--accent2)" id="stSkip">0</div><div class="stat-lbl">Sans réponse</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--accent4)" id="stPct">0%</div><div class="stat-lbl">Réussite</div></div>
   </div>
   <div class="section-lbl">Détail des réponses</div>
@@ -3952,9 +3962,8 @@ const CAT_NAMES = { add:'Addition', sub:'Soustraction', mul:'Multiplication', di
 let selCat=null, selTypeId=null, selSubIdx=0, selLevel=null, selTableSet=[];
 let timePerQ=10, nbQ=10;
 let questions=[], curQ=0, score=0, answers=[];
-let timer=null, timeLeft=0, answered=false, isDual=false, dualFocus='q';
+let answered=false, isDual=false, dualFocus=0;
 let paused=false;
-const CIRC=257.6;
 
 // ================================================================
 // AUDIO
@@ -5267,58 +5276,98 @@ function genQ(typeId,subIdx,lv){
 // ================================================================
 // GAME
 // ================================================================
-function startGame(){
+// Progression de l'élève pour la compétence choisie (Firestore), sinon palier 1.
+// "sauvegardable" = la lecture a réussi : on ne risque pas d'écraser une vraie progression par un palier 1 par défaut.
+async function chargerProgression(subId){
+  const defaut = MoteurAdaptatif.etatInitial();
+  try{
+    const F = window.FirebaseApp;
+    const user = F && F.auth && F.auth.currentUser;
+    if(!user) return {etat:defaut, uid:null, sauvegardable:false};
+    const snap = await F.getDoc(F.doc(F.db,'progressions',user.uid,'competences',subId));
+    if(snap.exists()){
+      const d = snap.data();
+      const palier = Math.min(6, Math.max(1, parseInt(d.palier,10)||1));
+      const compteur = Math.max(0, Number(d.compteur)||0);
+      return {etat:{palier,compteur}, uid:user.uid, sauvegardable:true};
+    }
+    return {etat:defaut, uid:user.uid, sauvegardable:true};
+  }catch(e){
+    console.warn('Progression non chargée, palier 1 par défaut :', e);
+    return {etat:defaut, uid:null, sauvegardable:false};
+  }
+}
+
+// ---- État de la séance adaptative ----
+let etatProg=null, progUid=null, progSauvegardable=false;
+let reglagesActifs=null;     // réglages enseignant : valeurs par défaut pour l'instant (phase 5)
+let sessionLog=[];           // une entrée par réponse (sert à la sauvegarde et aux résultats)
+let seenKeys=new Set();
+let tDebutQ=0, pauseCumulMs=0, pauseDebutMs=null;
+
+// ---- Chronomètre silencieux (jamais affiché) ----
+function demarrerChrono(){ tDebutQ=performance.now(); pauseCumulMs=0; pauseDebutMs=null; }
+function suspendreChrono(){ if(pauseDebutMs===null) pauseDebutMs=performance.now(); }
+function reprendreChrono(){ if(pauseDebutMs!==null){ pauseCumulMs+=performance.now()-pauseDebutMs; pauseDebutMs=null; } }
+function tempsEcoule(){
+  const fin = pauseDebutMs!==null ? pauseDebutMs : performance.now();
+  return Math.max(0,(fin-tDebutQ-pauseCumulMs)/1000);
+}
+
+// ---- Couche d'adaptation : format MoteurCM.genQ -> format attendu par l'écran de jeu ----
+function adapterQuestion(raw, subId){
+  const estDec = v => typeof v==='number' && !Number.isInteger(v);
+  const q = {raw, subId, text: raw.text+(raw.noSuffix?'':' = ?'), hint:'', allowDec:false,
+             isDual:false, isMaison:false, isFrac:false, isChoice:false};
+  if(raw.answer!==null && typeof raw.answer==='object'){
+    q.isDual=true;
+    q.values=Object.values(raw.answer);
+    q.labels=(raw.labels||[]).slice();
+    while(q.labels.length<q.values.length) q.labels.push('');
+    q.answer=q.values[0]; q.answer2=q.values[1]; q.answer3=q.values[2];
+    q.allowDec=q.values.some(estDec);
+  } else {
+    q.answer=raw.answer; q.answer2=null; q.values=[raw.answer]; q.labels=[];
+    q.allowDec = estDec(raw.answer) || estDec(raw.altAnswer);
+  }
+  if(raw.altAnswer!==undefined) q.altAnswer=raw.altAnswer;
+  if(raw.isFrac){ q.isFrac=true; q.fracDisplay=raw.frac; }
+  if(Array.isArray(raw.options)){ q.isChoice=true; q.options=raw.options.slice(); }
+  if(subId==='maisonsDesNombres' && raw.cible!==undefined){
+    q.isMaison=true; q.maisonTgt=raw.cible; q.maisonDisplay=raw.connu+' + …'; q.text=q.maisonDisplay;
+  }
+  return q;
+}
+
+// Clé de dédoublonnage : pour + et ×, "3 + 5" et "5 + 3" sont la même question.
+function cleDedoublonnage(q){
+  const cat=MoteurAdaptatif.CATEGORIE_PAR_SOUS_COMPETENCE[q.subId];
+  const commut=(cat==='addition'||cat==='multiplication')&&!q.isFrac&&!q.isChoice&&!q.isDual;
+  if(!commut) return q.raw.text;
+  return (q.raw.text.match(/\d+(?:[.,]\d+)?/g)||[]).map(x=>parseFloat(x.replace(',','.'))).sort((a,b)=>a-b).join('|');
+}
+
+// Une question à la fois, au palier courant de l'élève (qui peut changer en cours de séance).
+function genererQuestion(){
+  let q=null;
+  for(let i=0;i<60;i++){
+    q=adapterQuestion(MoteurCM.genQ(selTypeId, etatProg.palier), selTypeId);
+    const k=cleDedoublonnage(q);
+    if(!seenKeys.has(k)){ seenKeys.add(k); return q; }
+  }
+  return q; // trop peu de variété possible à ce palier : on accepte un doublon
+}
+
+async function startGame(){
   if(!selCat||!selTypeId){alert('Choisis une opération et un type !');nav(1,'back');return;}
-  if(!selLevel){
-    const w=document.getElementById('levelWarning');
-    w.style.display='block';
-    setTimeout(()=>w.style.display='none', 3000);
-    return;
-  }
-
-  // Commutative operations: + and ×
-  const isCommutative = ['add','mul','proport'].includes(selCat);
-
-  // Build a canonical key for a question to detect duplicates
-  function canonicalKey(q){
-    // Extract numbers from the text (strip " = ?", "…", "?")
-    const raw = q.text.replace(' = ?','').replace('…','?');
-    // For dual (quotient+reste), use text as-is
-    if(q.isDual) return raw;
-    // For decimal answers keep as-is (less likely to repeat)
-    if(q.allowDec) return raw;
-    // Split on operators to get operands
-    const nums = raw.split(/[\+\-\×\÷\=\?\/]/).map(s=>s.trim()).filter(s=>s!=='');
-    if(isCommutative && nums.length>=2){
-      // Sort numbers to treat "3 + 5" same as "5 + 3"
-      return nums.slice().sort((a,b)=>Number(a)-Number(b)).join('|');
-    }
-    return raw;
-  }
-
-  questions=[];
-  const seen=new Set();
-  let attempts=0;
-  const maxAttempts=nbQ*50;
-
-  while(questions.length<nbQ && attempts<maxAttempts){
-    attempts++;
-    const q=genQ(selTypeId,selSubIdx,selLevel);
-    const key=canonicalKey(q);
-    if(!seen.has(key)){
-      seen.add(key);
-      questions.push(q);
-    }
-  }
-  // If we couldn't find enough unique questions, fill with whatever we have
-  while(questions.length<nbQ){
-    questions.push(genQ(selTypeId,selSubIdx,selLevel));
-  }
-
+  const btn=document.getElementById('startBtn');
+  btn.disabled=true; btn.textContent='Chargement…';
+  const p=await chargerProgression(selTypeId);
+  btn.disabled=false; btn.textContent='▶ Commencer !';
+  etatProg=p.etat; progUid=p.uid; progSauvegardable=p.sauvegardable;
+  reglagesActifs=MoteurAdaptatif.reglagesParDefaut;
+  sessionLog=[]; seenKeys=new Set(); questions=[];
   curQ=0;score=0;answers=[];answered=false;paused=false;
-
-  const lvNames={1:'Débutant',2:'Intermédiaire',3:'Confirmé',4:'Expert'};
-  document.getElementById('gLvLabel').textContent=lvNames[selLevel];
   document.getElementById('gQTotal').textContent=nbQ;
   nav(4,'fwd');
   setTimeout(showQuestion,300);
@@ -5403,6 +5452,14 @@ function renderFracDisplay(q) {
     wrap.appendChild(makeTextSvg('=', 'var(--muted)', 30));
     wrap.appendChild(makeTextSvg('?', 'var(--accent2)', 34));
 
+  } else if(fd.type==='add_ent'){
+    // 2 + 3/4 = ?
+    wrap.appendChild(makeTextSvg(String(fd.entier), 'var(--text)', 30));
+    wrap.appendChild(makeTextSvg('+', 'var(--muted)', 30));
+    wrap.appendChild(makeFracSvg(fd.n1, fd.d1));
+    wrap.appendChild(makeTextSvg('=', 'var(--muted)', 30));
+    wrap.appendChild(makeFracSvg('?', fd.ansDen, 'var(--accent2)'));
+
   } else if(fd.type==='sub_ent'){
     // 2 − 3/4 = ?
     wrap.appendChild(makeTextSvg(String(fd.entier), 'var(--text)', 30));
@@ -5435,6 +5492,7 @@ function isTouchDevice(){
 function showQuestion(){
   if(curQ>=nbQ){endGame();return;}
   answered=false;
+  if(!questions[curQ]) questions[curQ]=genererQuestion();
   const q=questions[curQ];
   isDual=q.isDual;
 
@@ -5460,64 +5518,51 @@ function showQuestion(){
     setTimeout(autoFitQuestion,10);
   }
 
-  document.getElementById('normalAnswer').style.display=isDual?'none':'block';
-  document.getElementById('dualAnswer').style.display=isDual?'grid':'none';
+  // Quel type de zone de réponse ?
+  document.getElementById('normalAnswer').style.display=(isDual||q.isChoice)?'none':'block';
+  document.getElementById('dualAnswer').style.display=isDual?'block':'none';
+  document.getElementById('choiceAnswer').style.display=q.isChoice?'block':'none';
+  document.getElementById('numpad').style.display=q.isChoice?'none':'';
   document.getElementById('activeInputLabel').style.display=isDual?'block':'none';
+  document.getElementById('autoSubmitMsg').textContent=q.isChoice?'👆 Choisis le résultat plausible':'⚡ Validation automatique des réponses';
+  document.getElementById('autoSubmitMsg').style.display='block';
 
   const dotBtn=document.getElementById('dotBtn');
   const tabBtn=document.getElementById('tabBtn');
-  if(isDual){dotBtn.style.display='none';tabBtn.style.display='block';}
-  else{dotBtn.style.display=q.allowDec?'block':'none';tabBtn.style.display='none';}
-  document.getElementById('autoSubmitMsg').style.display='block';
+  dotBtn.style.display=q.allowDec?'block':'none';
+  tabBtn.style.display=(isDual&&q.values.length>1)?'block':'none';
 
-  if(isDual){
-    document.getElementById('ansQ').value='';document.getElementById('ansR').value='';
-    document.getElementById('ansQ').className='answer-input';document.getElementById('ansR').className='answer-input';
-    dualFocus='q';updateDualLabel();
+  if(q.isChoice){
+    for(let i=0;i<4;i++){
+      const b=document.getElementById('ch'+i);
+      b.textContent=fmt(q.options[i]); b.className='choice-btn'; b.disabled=false;
+    }
+  } else if(isDual){
+    const n=q.values.length;
+    document.getElementById('dualGrid').style.gridTemplateColumns='repeat('+n+',1fr)';
+    document.getElementById('dualCellT').style.display=n>2?'':'none';
+    DUAL_IDS.forEach(id=>{const e=document.getElementById(id);e.value='';e.className='answer-input';});
+    dualFocus=0;updateDualLabel();
     if(!isTouchDevice())setTimeout(()=>document.getElementById('ansQ').focus(),80);
-  }else{
+  } else {
     const inp=document.getElementById('answerInput');
     inp.value='';inp.className='answer-input';
     if(!isTouchDevice())setTimeout(()=>inp.focus(),80);
   }
-  bStart();startCountdown();
+  bStart();demarrerChrono();
 }
 
-function getDualLabels(){
-  const q=questions[curQ];
-  if(q && q.hint==='h / min') return ['h','min'];
-  if(q && q.hint==='min / s') return ['min','s'];
-  return ['Quotient','Reste'];
-}
+const DUAL_IDS=['ansQ','ansR','ansT'];
+function dualCount(){const q=questions[curQ];return q&&q.isDual?q.values.length:0;}
+
 function updateDualLabel(){
-  const labels=getDualLabels();
-  document.getElementById('activeInputLabel').textContent='Saisie : '+(dualFocus==='q'?labels[0]:labels[1]);
-  // Update the visible dual labels too
-  const dualLabels=document.querySelectorAll('.dual-label');
-  if(dualLabels[0])dualLabels[0].textContent=labels[0];
-  if(dualLabels[1])dualLabels[1].textContent=labels[1];
+  const q=questions[curQ]; if(!q||!q.isDual)return;
+  document.getElementById('activeInputLabel').textContent='Saisie : '+(q.labels[dualFocus]||'');
+  document.querySelectorAll('.dual-label').forEach((el,i)=>{ if(q.labels[i]!==undefined) el.textContent=q.labels[i]; });
 }
-
-function startCountdown(){
-  clearInterval(timer);timeLeft=timePerQ;updateTimerUI(timeLeft,timePerQ);
-  timer=setInterval(()=>{
-    timeLeft--;updateTimerUI(timeLeft,timePerQ);
-    if(timeLeft<=3&&timeLeft>0)bTick();
-    if(timeLeft<=0){clearInterval(timer);bEnd();if(!answered){recordAns(null,false,true);nextQ();}}
-  },1000);
-}
-
-function updateTimerUI(t,total){
-  document.getElementById('timerText').textContent=t;
-  const arc=document.getElementById('timerArc');
-  const frac=t/total;
-  arc.style.strokeDashoffset=CIRC*(1-frac);
-  arc.style.stroke=frac>0.5?'var(--accent4)':frac>0.25?'var(--accent2)':'var(--accent1)';
-}
-
-function isAutoSubmitType(){
-  // Now universal — all types except fractions (which return early)
-  return !questions[curQ]?.isFrac;
+function focusDual(i){
+  dualFocus=i;updateDualLabel();
+  document.getElementById(DUAL_IDS[i]).focus();
 }
 
 function countDecimalDigits(n){
@@ -5537,7 +5582,7 @@ function digitCount(n){
 function checkAutoSubmit(){
   if(answered||isDual)return;
   const q=questions[curQ];
-  if(!q||q.isFrac)return;
+  if(!q||q.isFrac||q.isChoice)return;
   const inp=document.getElementById('answerInput');
   const raw=inp.value;
   if(raw===''||raw==='-')return;
@@ -5563,97 +5608,95 @@ function checkAutoSubmit(){
   }
 }
 
-function checkAutoSubmitDualQuotient(){
+// Réponses à 2 ou 3 cases : passe à la case suivante quand le bon nombre de chiffres est saisi,
+// et valide après la dernière case. (Si une case attend un décimal : validation manuelle.)
+function checkAutoSubmitDual(i){
   if(answered||!isDual)return;
   const q=questions[curQ];
-  if(!q)return;
-  const inp=document.getElementById('ansQ');
-  const digits=inp.value.replace(/[^0-9]/g,'');
+  if(!q||q.allowDec)return;
+  const digits=document.getElementById(DUAL_IDS[i]).value.replace(/[^0-9]/g,'');
   if(digits.length===0)return;
-  if(digits.length>=digitCount(q.answer)){
-    dualFocus='r';
-    updateDualLabel();
-    document.getElementById('ansR').focus();
+  if(digits.length>=digitCount(q.values[i])){
+    if(i<q.values.length-1) focusDual(i+1); else submitAnswer();
   }
-}
-
-function checkAutoSubmitDualReste(){
-  if(answered||!isDual)return;
-  const q=questions[curQ];
-  if(!q)return;
-  const inp=document.getElementById('ansR');
-  const digits=inp.value.replace(/[^0-9]/g,'');
-  if(digits.length===0)return;
-  if(digits.length>=digitCount(q.answer2)) submitAnswer();
 }
 
 function handleKey(e){
   if(e.key==='Enter') submitAnswer();
 }
-function handleKeyDual(e,field){
+function handleKeyDual(e,i){
   if(e.key==='Enter'||e.key==='Tab'){
     e.preventDefault();
-    if(field==='q'){dualFocus='r';updateDualLabel();document.getElementById('ansR').focus();}
-    else submitAnswer();
+    e.stopPropagation(); // sinon l'écouteur global d'Entrée valide trop tôt
+    if(i<dualCount()-1) focusDual(i+1); else submitAnswer();
   }
 }
 
 function np(k){
-  const inp=isDual?document.getElementById(dualFocus==='q'?'ansQ':'ansR'):document.getElementById('answerInput');
+  const inp=isDual?document.getElementById(DUAL_IDS[dualFocus]):document.getElementById('answerInput');
   if(k==='del')inp.value=inp.value.slice(0,-1);
   else if(k===','){
     if(!inp.value.includes(',')&&!inp.value.includes('.'))inp.value+=',';
   }
   else if(k==='tab'){
-    if(isDual){dualFocus=dualFocus==='q'?'r':'q';updateDualLabel();document.getElementById(dualFocus==='q'?'ansQ':'ansR').focus();}
+    if(isDual&&dualCount()>1) focusDual((dualFocus+1)%dualCount());
   }
-  else if(inp.value.length<10){
-    inp.value+=k;
-    // Auto-switch from quotient to reste after expected digits entered
-    if(isDual && dualFocus==='q'){
-      const q=questions[curQ];
-      if(q && q.answer!==null){
-        const expDigits=q.answer===0?1:Math.floor(Math.log10(Math.abs(q.answer)))+1;
-        if(inp.value.replace(/[^0-9]/g,'').length>=expDigits){
-          dualFocus='r';
-          updateDualLabel();
-          document.getElementById('ansR').focus();
-          // No auto-submit yet — reste field is empty
-        }
-      }
-    }
-  }
+  else if(inp.value.length<10) inp.value+=k;
   if(!isDual) checkAutoSubmit();
-  else if(isDual && dualFocus==='r') checkAutoSubmitDualReste();
+  else checkAutoSubmitDual(dualFocus);
+}
+
+// ---- Enregistrement d'une réponse + mise à jour du moteur adaptatif ----
+function conclure(q, ok, givenStr, nonReponse){
+  answered=true;
+  const palierAvant=etatProg.palier, compteurAvant=etatProg.compteur;
+  const tps = nonReponse ? null : tempsEcoule();
+  const res = MoteurAdaptatif.traiterReponse(etatProg,{correcte:ok,tempsSecondes:tps},selTypeId,reglagesActifs);
+  etatProg = res.nouvelEtat;
+  sessionLog.push({ok, nonReponse, tempsSecondes:tps, palierAvant, compteurAvant,
+                   points:res.pointsAppliques, aProgresse:res.aProgresse});
+  if(ok){score++;bOk();showFb('✅');}else{bWrong();showFb('❌');}
+  recordAns(givenStr,ok,nonReponse);
+  setTimeout(nextQ,950);
 }
 
 function submitAnswer(){
   if(answered)return;
   const q=questions[curQ];
-  if(isDual){
-    const vq=document.getElementById('ansQ').value.trim();
-    const vr=document.getElementById('ansR').value.trim();
-    if(vq==='')return; // quotient obligatoire, reste peut être vide (= 0)
-    clearInterval(timer);answered=true;
-    const gq=parseInt(vq,10),gr=vr===''?0:parseInt(vr,10);
-    const ok=(gq===q.answer)&&(gr===q.answer2);
-    document.getElementById('ansQ').className='answer-input '+(gq===q.answer?'correct':'wrong');
-    document.getElementById('ansR').className='answer-input '+(gr===q.answer2?'correct':'wrong');
-    if(ok){score++;bOk();showFb('✅');}else{bWrong();showFb('❌');}
-    recordAns(formatDualGiven(vq,gr,q),ok,false);
-    setTimeout(nextQ,950);
-  }else{
-    const v=document.getElementById('answerInput').value.trim();
-    if(v==='')return;
-    clearInterval(timer);answered=true;
-    const given=parseAns(v);
-    const ok=Math.abs(given-q.answer)<0.001;
-    const inp=document.getElementById('answerInput');
-    if(ok){inp.className='answer-input correct';score++;bOk();showFb('✅');maisonFeedback(true);}
-    else{inp.className='answer-input wrong';bWrong();showFb('❌');maisonFeedback(false);}
-    recordAns(v,ok,false);
-    setTimeout(nextQ,950);
+  if(!q||q.isChoice)return;
+  if(q.isDual){
+    const ids=DUAL_IDS.slice(0,q.values.length);
+    const vals=ids.map(id=>document.getElementById(id).value.trim());
+    if(vals.every(v=>v==='')) return conclure(q,false,null,true); // rien saisi = non-réponse
+    let ok=true;
+    ids.forEach((id,i)=>{
+      const good=Math.abs((vals[i]===''?0:parseAns(vals[i]))-q.values[i])<0.001;
+      if(!good)ok=false;
+      document.getElementById(id).className='answer-input '+(good?'correct':'wrong');
+    });
+    return conclure(q,ok,formatMulti(vals.map(v=>v===''?'0':v),q.labels),false);
   }
+  const inp=document.getElementById('answerInput');
+  const v=inp.value.trim();
+  if(v==='') return conclure(q,false,null,true); // champ vide = non-réponse
+  const given=parseAns(v);
+  let ok=Math.abs(given-q.answer)<0.001;
+  if(!ok&&q.altAnswer!==undefined) ok=Math.abs(given-q.altAnswer)<0.001; // arrondi ambigu
+  inp.className='answer-input '+(ok?'correct':'wrong');
+  maisonFeedback(ok);
+  conclure(q,ok,v,false);
+}
+
+// Écran à 4 boutons (Résultat plausible)
+function choisirOption(i){
+  if(answered)return;
+  const q=questions[curQ];
+  if(!q||!q.isChoice)return;
+  const val=q.options[i];
+  const ok=Math.abs(val-q.answer)<0.001;
+  document.getElementById('ch'+i).className='choice-btn '+(ok?'correct':'wrong');
+  if(!ok){ q.options.forEach((o,j)=>{ if(Math.abs(o-q.answer)<0.001) document.getElementById('ch'+j).className='choice-btn correct'; }); }
+  conclure(q,ok,fmt(val),false);
 }
 
 function maisonFeedback(ok){
@@ -5672,26 +5715,28 @@ function fracLabel(q){
   const fd=q.fracDisplay;
   if(fd.type==='qte') return `${fd.n1}/${fd.d1} de ${fd.qte}`;
   if(fd.type==='sub_ent') return `${fd.entier} − ${fd.n1}/${fd.d1}`;
+  if(fd.type==='add_ent') return `${fd.entier} + ${fd.n1}/${fd.d1}`;
   const op=fd.type==='sub'?'−':'+';
   return `${fd.n1}/${fd.d1} ${op} ${fd.n2}/${fd.d2}`;
 }
-function formatDualGiven(v1,v2,q){
-  // Format dual answer with proper units based on hint
-  const hint=q?q.hint:'';
-  if(hint==='h / min') return `${v1}h ${v2}min`;
-  if(hint==='min / s') return `${v1}min ${v2}s`;
-  // Default: quotient et reste
-  return `${v1} r.${v2}`;
+
+// Affichage d'une réponse à plusieurs cases : "7 r.2", "2 h 15 min", "1 m 50 cm"…
+function formatMulti(vals,labels){
+  labels=labels||[];
+  if(labels[0]==='Quotient') return `${vals[0]} r.${vals[1]}`;
+  return vals.map((v,i)=>v+(labels[i]?' '+labels[i]:'')).join(' ');
 }
 
 function recordAns(given,ok,skipped){
-  const cq=questions[curQ]; answers.push({q:cq.isFrac?fracLabel(cq):cq.text, ans:cq.answer,ans2:cq.answer2,given,ok,skipped,isDual:cq.isDual,hint:cq.hint||''});
+  const cq=questions[curQ];
+  answers.push({q:cq.isFrac?fracLabel(cq):cq.text, ans:cq.answer, values:cq.values, labels:cq.labels||[],
+                given, ok, skipped, isDual:cq.isDual});
 }
 
 function nextQ(){curQ++;if(curQ>=nbQ)endGame();else showQuestion();}
 
 function endGame(){
-  clearInterval(timer);nav(5,'fwd');
+  nav(5,'fwd');
   const total=nbQ,correct=answers.filter(a=>a.ok).length;
   const wrong=answers.filter(a=>!a.ok&&!a.skipped).length;
   const skip=answers.filter(a=>a.skipped).length;
@@ -5711,9 +5756,9 @@ function endGame(){
     const div=document.createElement('div');
     div.className='review-item';
     const givenStr=a.skipped?'—':a.given;
-    const correctStr=a.isDual?formatDualGiven(a.ans,a.ans2,a):`${fmt(a.ans)}`;
+    const correctStr=a.isDual?formatMulti(a.values.map(fmt),a.labels):`${fmt(a.ans)}`;
     const cls=a.ok?'correct-a':'wrong-a';
-    div.innerHTML=`<span class="review-q">${a.q}</span><span class="review-given ${cls}">${givenStr}</span>${!a.ok?`<span class="review-ans">→ ${correctStr}</span>`:''}<span class="review-icon">${a.ok?'✅':a.skipped?'⏱':'❌'}</span>`;
+    div.innerHTML=`<span class="review-q">${a.q}</span><span class="review-given ${cls}">${givenStr}</span>${!a.ok?`<span class="review-ans">→ ${correctStr}</span>`:''}<span class="review-icon">${a.ok?'✅':a.skipped?'➖':'❌'}</span>`;
     list.appendChild(div);
   });
 }
@@ -5723,7 +5768,7 @@ function togglePause(){
   paused=!paused;
   const btn=document.getElementById('pauseBtn');
   if(paused){
-    clearInterval(timer);
+    suspendreChrono();
     btn.textContent='▶ Reprendre';
     btn.style.color='var(--accent3)';
     btn.style.borderColor='var(--accent3)';
@@ -5732,6 +5777,7 @@ function togglePause(){
     document.getElementById('maisonDisplay').style.visibility='hidden';
     document.getElementById('normalAnswer').style.visibility='hidden';
     document.getElementById('dualAnswer').style.visibility='hidden';
+    document.getElementById('choiceAnswer').style.visibility='hidden';
     document.getElementById('numpad').style.visibility='hidden';
     document.getElementById('autoSubmitMsg').style.visibility='hidden';
     // Show pause overlay
@@ -5755,15 +5801,10 @@ function togglePause(){
     document.getElementById('maisonDisplay').style.visibility='';
     document.getElementById('normalAnswer').style.visibility='';
     document.getElementById('dualAnswer').style.visibility='';
+    document.getElementById('choiceAnswer').style.visibility='';
     document.getElementById('numpad').style.visibility='';
     document.getElementById('autoSubmitMsg').style.visibility='';
-    // Resume countdown from where it stopped (timeLeft unchanged)
-    timer=setInterval(()=>{
-      timeLeft--;
-      updateTimerUI(timeLeft,timePerQ);
-      if(timeLeft<=3&&timeLeft>0)bTick();
-      if(timeLeft<=0){clearInterval(timer);bEnd();if(!answered){recordAns(null,false,true);nextQ();}}
-    },1000);
+    reprendreChrono(); // le temps passé en pause n'est jamais compté
   }
 }
 
@@ -5771,8 +5812,7 @@ function quitGame(){
   // Remove any existing modal
   const old=document.getElementById('quitModal');
   if(old)old.remove();
-  // Pause timer
-  clearInterval(timer);
+  suspendreChrono();
 
   const modal=document.createElement('div');
   modal.id='quitModal';
@@ -5793,8 +5833,8 @@ function quitGame(){
   modal.appendChild(box);
   document.body.appendChild(modal);
 
-  document.getElementById('quitConfirm').onclick=()=>{modal.remove();clearInterval(timer);nav(3,'back');};
-  document.getElementById('quitCancel').onclick=()=>{modal.remove();startCountdown();};
+  document.getElementById('quitConfirm').onclick=()=>{modal.remove();nav(3,'back');};
+  document.getElementById('quitCancel').onclick=()=>{modal.remove();reprendreChrono();};
 }
 function drawResultSvg(pct){
   const svg=document.getElementById('resSvg');
@@ -5898,7 +5938,6 @@ function drawResultSvg(pct){
 }
 
 function printResults(){
-  const lvNames={1:'Débutant',2:'Intermédiaire',3:'Confirmé',4:'Expert'};
   const catNames={add:'Addition',sub:'Soustraction',mul:'Multiplication',div:'Division',
     frac:'Fractions',mesure:'Grandeurs',estimation:'Estimation',suite:'Suites',proport:'Proportionnalité'};
   const typeName=selTypeId?(TYPES[selCat]?.find(t=>t.id===selTypeId)?.name||''):'';
@@ -5910,8 +5949,8 @@ function printResults(){
   const rowsData=answers.map((a,i)=>{
     const q=a.q.replace(' = ?','').replace(/\n/g,' ');
     const given=a.skipped?'—':(a.given||'—');
-    const corr=a.isDual?formatDualGiven(a.ans,a.ans2,a):fmt(a.ans);
-    const icon=a.ok?'✅':a.skipped?'⏱':'❌';
+    const corr=a.isDual?formatMulti(a.values.map(fmt),a.labels):fmt(a.ans);
+    const icon=a.ok?'✅':a.skipped?'➖':'❌';
     return {num:i+1,q,given,corr,ok:a.ok,skipped:a.skipped,icon};
   });
 
@@ -5960,7 +5999,7 @@ function printResults(){
 <header>
   <div>
     <div class="title">🧮 Calcul Mental — Correction</div>
-    <div class="meta">${catNames[selCat]||''} · ${typeName} · ${lvNames[selLevel]||''}</div>
+    <div class="meta">${catNames[selCat]||''} · ${typeName}</div>
   </div>
   <div class="controls">
     <button class="size-btn" onclick="changeSize(-0.15)">−</button>
@@ -6012,7 +6051,7 @@ function showFb(txt){
 (function(){
   const isMobile = /Android|iPhone|iPad|iPod|Touch/i.test(navigator.userAgent) || ('ontouchstart' in window);
   if(!isMobile){
-    ['answerInput','ansQ','ansR'].forEach(id=>{
+    ['answerInput','ansQ','ansR','ansT'].forEach(id=>{
       const el=document.getElementById(id);
       if(el){el.removeAttribute('readonly');el.setAttribute('inputmode','decimal');}
     });
