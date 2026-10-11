@@ -172,7 +172,9 @@ body {
   border: 2px solid transparent;
   transition: all 0.13s;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
 }
 .type-card:hover { background: var(--card2); }
 .type-card.selected {
@@ -479,6 +481,12 @@ body {
 }
 .dual-answer .answer-input { font-size: 1.5rem; }
 .consigne { width:100%; text-align:center; font-size:1.05rem; font-weight:800; color:var(--accent2); margin:-4px 0 14px; }
+.etoiles-slot { display:block; min-height:15px; line-height:0; }
+.progres-legende { width:100%; font-size:0.78rem; color:var(--muted); text-align:center; margin:2px 0 10px; line-height:1.4; }
+.progres-msg { text-align:center; font-weight:700; color:var(--muted); padding:20px 10px; }
+.progres-row { display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--card); border-radius:10px; padding:8px 11px; font-size:0.75rem; font-weight:700; line-height:1.3; }
+.progres-nom { flex:1; min-width:0; }
+.progres-row .etoiles-slot { flex-shrink:0; min-height:0; }
 .res-prog { text-align:center; font-weight:800; font-size:1.05rem; margin:6px 0 4px; }
 .res-prog-up { color:var(--accent3); font-family:'Fredoka One',cursive; font-size:1.2rem; margin-bottom:2px; }
 .res-save { text-align:center; font-size:0.85rem; font-weight:700; color:var(--muted); margin:2px 0 10px; }
@@ -803,7 +811,7 @@ body.cat-proport { --clr-active: #0652dd; }
 
   // Exposés pour le reste du programme (script classique, non-module)
   window.FirebaseApp = {
-    auth, db, doc, getDoc, setDoc, updateDoc,
+    auth, db, doc, getDoc, setDoc, updateDoc, collection, getDocs,
     fabriquerEmailEleve, connecterEleve, deconnecter,
     inscrireEnseignant, connecterEnseignant, estCompteEnseignant,
     creerClasse, listerClasses, supprimerClasse,
@@ -3001,15 +3009,17 @@ function genEstimerProduit(config) {
 
   if (mode === 'decimalParEntier') {
     const { max, decimals } = config;
-    const a = genDecimalValue(max, [decimals]).value;
+    const decimalNon1 = () => { let v; do { v = genDecimalValue(max, [decimals]).value; } while (v === 1); return v; }; // jamais × 1
+    const a = decimalNon1();
     const b = randInt(2, 9); // jamais × 1
     return sortie(`${a} × ${b}`, [arrondisAcceptables(a, 1), [b]]);
   }
 
   if (mode === 'deuxDecimaux') {
     const { max, decimals } = config;
-    const a = genDecimalValue(max, [decimals]).value;
-    const b = genDecimalValue(max, [decimals]).value;
+    const decimalNon1 = () => { let v; do { v = genDecimalValue(max, [decimals]).value; } while (v === 1); return v; }; // jamais × 1
+    const a = decimalNon1();
+    const b = decimalNon1();
     return sortie(`${a} × ${b}`, [arrondisAcceptables(a, 1), arrondisAcceptables(b, 1)]);
   }
 
@@ -3516,6 +3526,12 @@ window.MoteurAdaptatif = {
     <span class="autres-title">Autres types de calculs</span>
     <span class="autres-arrow">›</span>
   </div>
+
+  <!-- Bouton "Mes progrès" -->
+  <div class="autres-btn" onclick="openProgres()">
+    <span class="autres-title">⭐ Mes progrès</span>
+    <span class="autres-arrow">›</span>
+  </div>
 </div>
 
 <!-- ====================================================
@@ -3525,6 +3541,16 @@ window.MoteurAdaptatif = {
   <div class="app-title">Autres types de calculs</div>
   <button class="btn-back" onclick="nav(1,'back')">← Retour</button>
   <div id="autresTypeList" style="width:100%; display:flex; flex-direction:column; gap:10px; overflow-y:auto; flex:1; padding-bottom:8px;"></div>
+</div>
+
+<!-- ====================================================
+     ÉCRAN 6 : MES PROGRÈS (étoiles par compétence)
+===================================================== -->
+<div class="screen" id="s6">
+  <div class="app-title">⭐ Mes progrès</div>
+  <button class="btn-back" onclick="nav(1,'back')">← Retour</button>
+  <div class="progres-legende">Chaque étoile est un palier. L'étoile en cours se remplit quand tu réussis tes calculs.</div>
+  <div id="progresList" style="width:100%; display:flex; flex-direction:column; gap:7px; overflow-y:auto; flex:1; padding-bottom:8px;"></div>
 </div>
 
 <!-- ====================================================
@@ -3749,12 +3775,15 @@ async function tenterConnexion() {
 // (rechargement de page).
 window.onEleveConnecte = function(user) {
   eleveConnecte = { uid: user.uid, email: user.email };
+  progressionsEleve=null; progressionsEtat='idle';
   nav(1);
+  chargerToutesProgressions();
 };
 
 function deconnecterEleve() {
   window.FirebaseApp.deconnecter();
   eleveConnecte = null;
+  progressionsEleve=null; progressionsEtat='idle';
   nav(0);
 }
 
@@ -4048,6 +4077,106 @@ let s3Origin = 2; // which screen s3 back button goes to (2 or '1b')
 function goBackFromS2(){ nav(s2Origin,'back'); }
 function goBackFromS3(){ nav(s3Origin,'back'); }
 
+// ================================================================
+// ÉTOILES DE PROGRESSION (6 étoiles = 6 paliers ; l'étoile en cours se remplit)
+// ================================================================
+let progressionsEleve=null;       // { subCompetenceId: {palier, compteur} } ; null = pas (encore) chargé
+let progressionsEtat='idle';      // 'idle' | 'chargement' | 'ok' | 'erreur'
+const COULEURS_CAT={add:'#6bcb77',sub:'#ff6b6b',mul:'#ffd93d',div:'#4d96ff',mesure:'#4ecdc4',estimation:'#ff9f43'};
+const ORDRE_CATS=['add','sub','mul','div','mesure','estimation'];
+const POINTS_ETOILE='12,1.5 15.1,8.3 22.5,9.1 17,14.1 18.5,21.4 12,17.7 5.5,21.4 7,14.1 1.5,9.1 8.9,8.3';
+let _etoileN=0;
+
+function seuilDe(subId){
+  return MoteurAdaptatif.resoudreReglage(subId,'seuilProgression',reglagesActifs||MoteurAdaptatif.reglagesParDefaut);
+}
+// Étoiles < palier : pleines ; étoile = palier : remplie à compteur/seuil ; étoiles > palier : vides
+function etoilesHTML(palier,compteur,seuil,hauteur){
+  const h=hauteur||15;
+  const fraction=i=>{
+    if(i<palier)return 1; if(i>palier)return 0;
+    return Math.max(0,Math.min(1,seuil>0?compteur/seuil:0));
+  };
+  let g='';
+  for(let i=1;i<=6;i++){
+    const f=fraction(i);
+    g+=`<g transform="translate(${(i-1)*25},0)"><polygon points="${POINTS_ETOILE}" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2;stroke-linejoin:round"/>`;
+    if(f>=1) g+=`<polygon points="${POINTS_ETOILE}" style="fill:#ffd93d;stroke:#e0b800;stroke-width:1.2;stroke-linejoin:round"/>`;
+    else if(f>0){
+      const id='cpe'+(++_etoileN);
+      g+=`<clipPath id="${id}"><rect x="0" y="0" width="${(24*f).toFixed(2)}" height="24"/></clipPath><polygon points="${POINTS_ETOILE}" clip-path="url(#${id})" style="fill:#ffd93d"/>`;
+    }
+    g+='</g>';
+  }
+  return `<svg class="etoiles" role="img" aria-label="Palier ${palier} sur 6" viewBox="0 0 149 24" style="height:${h}px;width:auto;display:block" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+}
+function creerSlotEtoiles(tid){
+  const el=document.createElement('span');
+  el.className='etoiles-slot'; el.dataset.tid=tid;
+  remplirEtoiles(el);
+  return el;
+}
+function remplirEtoiles(el){
+  if(!progressionsEleve){ el.innerHTML=''; return; }   // pas chargé : on n'affiche rien plutôt que de fausses étoiles vides
+  const tid=el.dataset.tid;
+  const p=progressionsEleve[tid]||{palier:1,compteur:0};
+  el.innerHTML=etoilesHTML(p.palier,p.compteur,seuilDe(tid));
+}
+function majEtoilesVisibles(){ document.querySelectorAll('.etoiles-slot').forEach(remplirEtoiles); }
+
+// Lecture de toutes les progressions de l'élève (1 requête)
+async function chargerToutesProgressions(){
+  const F=window.FirebaseApp; const user=F&&F.auth&&F.auth.currentUser;
+  if(!user)return;
+  progressionsEtat='chargement';
+  if(document.getElementById('s6').classList.contains('active')) rendreProgres();
+  try{
+    const snap=await F.getDocs(F.collection(F.db,'progressions',user.uid,'competences'));
+    const m={};
+    snap.forEach(d=>{
+      const x=d.data();
+      m[d.id]={palier:Math.min(6,Math.max(1,parseInt(x.palier,10)||1)), compteur:Math.max(0,Number(x.compteur)||0)};
+    });
+    progressionsEleve=m; progressionsEtat='ok';
+  }catch(e){
+    console.warn('Lecture des progrès impossible :',e);
+    progressionsEleve=null; progressionsEtat='erreur';
+  }
+  majEtoilesVisibles();
+  if(document.getElementById('s6').classList.contains('active')) rendreProgres();
+}
+
+function openProgres(){
+  if(progressionsEtat==='idle'||progressionsEtat==='erreur') chargerToutesProgressions();
+  rendreProgres();
+  nav(6,'fwd');
+}
+function rendreProgres(){
+  const box=document.getElementById('progresList');
+  box.innerHTML='';
+  if(progressionsEtat==='erreur'){
+    box.innerHTML='<div class="progres-msg">⚠️ Impossible de charger tes progrès (problème de connexion).<br><br><button class="res-retry" onclick="chargerToutesProgressions()">Réessayer</button></div>';
+    return;
+  }
+  if(progressionsEtat!=='ok'){ box.innerHTML='<div class="progres-msg">⏳ Chargement…</div>'; return; }
+  ORDRE_CATS.forEach(cat=>{
+    const titre=document.createElement('div');
+    titre.className='autres-section-title';
+    titre.style.color=COULEURS_CAT[cat];
+    titre.textContent=CAT_NAMES[cat];
+    box.appendChild(titre);
+    TYPES[cat].forEach(t=>{
+      const row=document.createElement('div');
+      row.className='progres-row';
+      const nom=document.createElement('div');
+      nom.className='progres-nom'; nom.textContent=t.name.replace(/\n/g,' ');
+      row.appendChild(nom);
+      row.appendChild(creerSlotEtoiles(t.id));
+      box.appendChild(row);
+    });
+  });
+}
+
 const EXTRA_CATS = ['mesure','estimation'];
 
 function openAutres(){
@@ -4081,7 +4210,10 @@ function renderAutresList(){
       card.className = 'autres-type-card';
       card.dataset.tid = t.id;
       card.dataset.cat = cat;
-      card.textContent = t.name;
+      const nomEl = document.createElement('div');
+      nomEl.textContent = t.name;
+      card.appendChild(nomEl);
+      card.appendChild(creerSlotEtoiles(t.id));
       card.style.setProperty('--clr-active', catColors[cat]);
       card.onclick = () => selectTypeFromAutres(cat, t);
       grid.appendChild(card);
@@ -4140,6 +4272,7 @@ function renderTypeGrid(cat) {
     nameEl.className='type-card-name';
     nameEl.textContent=t.name.replace(/\n/g,' ');
     div.appendChild(nameEl);
+    div.appendChild(creerSlotEtoiles(t.id));
     div.onclick=()=>selectType(t.id);
     grid.appendChild(div);
   });
@@ -5505,6 +5638,7 @@ async function sauvegarderSeance(terminee){
     await F.setDoc(F.doc(F.db,'progressions',progUid,'competences',selTypeId),
       {palier:etatProg.palier, compteur:etatProg.compteur, maj:new Date()});
     sauvegardeProgOk=true;
+    if(progressionsEleve){ progressionsEleve[selTypeId]={palier:etatProg.palier,compteur:etatProg.compteur}; majEtoilesVisibles(); }
   }
   if(!sauvegardeHistOk){
     const dejaTentee=histDejaTentee; histDejaTentee=true;
@@ -5550,6 +5684,7 @@ function afficherBilanProgression(){
   const seuil=MoteurAdaptatif.resoudreReglage(selTypeId,'seuilProgression',reglagesActifs);
   let html='';
   if(etatProg.palier>etatDebut.palier) html+=`<div class="res-prog-up">🎉 Bravo, tu passes au palier ${etatProg.palier} !</div>`;
+  html+=`<div style="display:flex;justify-content:center;margin:4px 0;">${etoilesHTML(etatProg.palier,etatProg.compteur,seuil,26)}</div>`;
   html+=`<div>Palier ${etatProg.palier} · ${fmt(etatProg.compteur)} / ${fmt(seuil)} points</div>`;
   el.innerHTML=html; el.style.display='block';
 }
