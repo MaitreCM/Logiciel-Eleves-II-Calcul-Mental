@@ -479,6 +479,10 @@ body {
 }
 .dual-answer .answer-input { font-size: 1.5rem; }
 .consigne { width:100%; text-align:center; font-size:1.05rem; font-weight:800; color:var(--accent2); margin:-4px 0 14px; }
+.res-prog { text-align:center; font-weight:800; font-size:1.05rem; margin:6px 0 4px; }
+.res-prog-up { color:var(--accent3); font-family:'Fredoka One',cursive; font-size:1.2rem; margin-bottom:2px; }
+.res-save { text-align:center; font-size:0.85rem; font-weight:700; color:var(--muted); margin:2px 0 10px; }
+.res-retry { margin-left:6px; padding:5px 14px; border-radius:50px; border:none; background:var(--accent2); color:#1a0000; font-family:Nunito,sans-serif; font-weight:800; cursor:pointer; }
 .choice-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; width:100%; margin-bottom:12px; }
 .choice-btn { padding:22px 10px; border-radius:16px; border:2px solid var(--surface); background:var(--card); color:var(--text); font-family:'Fredoka One',cursive; font-size:1.8rem; cursor:pointer; transition:all 0.13s; }
 .choice-btn:hover { border-color:var(--accent2); }
@@ -2906,49 +2910,54 @@ function genArrondir(config) {
   };
 }
 
+// --- Arrondis ambigus : une valeur pile à mi-chemin (85 à la dizaine, 4,5 à l'unité) peut
+//     s'arrondir dans les 2 sens ; les 2 réponses de l'élève sont acceptées. ---
+function arrondisAcceptables(valeur, pas) {
+  const haut = arrondirValeur(valeur, pas);
+  return estAmbigu(valeur, pas) ? [haut, haut - pas] : [haut]; // le 1er = règle habituelle (vers le haut)
+}
+// Tous les résultats possibles d'un calcul dont chaque terme s'arrondit d'une ou de deux façons.
+function issuesPossibles(listes, combiner) {
+  let combos = [[]];
+  for (const l of listes) combos = combos.flatMap(pre => l.map(v => [...pre, v]));
+  return combos.map(c => Math.round(combiner(c) * 1000) / 1000);
+}
+// Réponse principale + alternatives acceptées (altAnswer = la 1re alternative ; altAnswers = toutes).
+function avecAlternatives(answer, issues) {
+  const alts = [...new Set(issues)].filter(x => Math.abs(x - answer) > 1e-9);
+  const res = { answer, ambigu: alts.length > 0 };
+  if (alts.length > 0) { res.altAnswer = alts[0]; res.altAnswers = alts; }
+  return res;
+}
+
 function genEstimerSomme(config) {
   const { nbTermes, max, arrondiA, decimals } = config;
   const pas = { unite: 1, dizaine: 10, centaine: 100 }[arrondiA];
-  // L'élève arrondit d'abord CHAQUE terme, puis calcule : on évite donc les termes pile à mi-chemin
-  // (ex. 35 à la dizaine, 4,5 à l'unité) et les termes plus petits que le pas (qui s'arrondiraient à 0).
-  const tirer = () => {
-    let v;
-    for (let i = 0; i < 200; i++) {
-      v = decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
-      if (v >= pas && !estAmbigu(v, pas)) return v;
-    }
-    return v;
-  };
+  const tirer = () => decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
+  // L'élève arrondit d'abord chaque terme, puis additionne.
   const termes = Array.from({ length: nbTermes }, tirer);
-  const answer = Math.round(termes.reduce((s, n) => s + arrondirValeur(n, pas), 0) * 1000) / 1000;
-  return { text: termes.join(' + '), answer, ambigu: false };
+  const somme = c => c.reduce((s, n) => s + n, 0);
+  const answer = Math.round(somme(termes.map(t => arrondirValeur(t, pas))) * 1000) / 1000;
+  const issues = issuesPossibles(termes.map(t => arrondisAcceptables(t, pas)), somme);
+  return { text: termes.join(' + '), ...avecAlternatives(answer, issues) };
 }
 
 function genEstimerDifference(config) {
   const { mode, nbTermesSoustraits, max, decimals, arrondiA } = config;
   const pas = { unite: 1, dizaine: 10, centaine: 100 }[arrondiA];
-  // Même principe que pour la somme : l'élève arrondit chaque terme, puis soustrait.
-  const valide = n => n >= pas && !estAmbigu(n, pas);
-  const tirer = () => {
-    let v;
-    for (let i = 0; i < 200; i++) {
-      v = decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
-      if (valide(v)) return v;
-    }
-    return v;
-  };
+  const tirer = () => decimals ? genDecimalValue(max, [decimals]).value : randInt(1, max - 1);
+  const diff = c => c[0] - c.slice(1).reduce((s, n) => s + n, 0);
 
-  let texte, resultat;
-  if (mode === 'simple') {
-    for (let essai = 0; essai < 100; essai++) {
+  // L'élève arrondit d'abord chaque terme, puis soustrait. Un résultat nul est permis ;
+  // on refuse seulement les questions dont une façon d'arrondir donnerait un résultat négatif.
+  let texte, nombres, listes, issues;
+  for (let essai = 0; essai < 500; essai++) {
+    if (mode === 'simple') {
       let a = tirer(), b = tirer();
-      if (b > a) [a, b] = [b, a]; // interdire les résultats négatifs
-      resultat = Math.round((arrondirValeur(a, pas) - arrondirValeur(b, pas)) * 1000) / 1000;
+      if (b > a) [a, b] = [b, a];
+      nombres = [a, b];
       texte = `${a} - ${b}`;
-      if (resultat > 0) break; // éviter "34 - 31" (→ 0) qui n'apprend rien
-    }
-  } else {
-    for (let essai = 0; essai < 500; essai++) {
+    } else {
       const a = randInt(nbTermesSoustraits + 1, max - 1);
       const termes = [];
       let reste = a;
@@ -2957,50 +2966,57 @@ function genEstimerDifference(config) {
         termes.push(t);
         reste -= t;
       }
-      resultat = arrondirValeur(a, pas) - termes.reduce((s, n) => s + arrondirValeur(n, pas), 0);
+      nombres = [a, ...termes];
       texte = `${a} - ${termes.join(' - ')}`;
-      if ([a, ...termes].every(valide) && resultat > 0) break;
     }
+    listes = nombres.map(n => arrondisAcceptables(n, pas));
+    issues = issuesPossibles(listes, diff);
+    if (Math.min(...issues) >= 0) break;
   }
-
-  return { text: texte, answer: resultat, ambigu: false };
+  const answer = Math.round(diff(nombres.map(n => arrondirValeur(n, pas))) * 1000) / 1000;
+  return { text: texte, ...avecAlternatives(answer, issues) };
 }
 
 function genEstimerProduit(config) {
   const { mode } = config;
+  const prod = c => c.reduce((p, n) => p * n, 1);
+  // listes = pour chaque facteur, ses arrondis acceptables (un facteur non arrondi = [valeur])
+  const sortie = (texte, listes) => {
+    const answer = Math.round(prod(listes.map(l => l[0])) * 1000) / 1000;
+    return { text: texte, ...avecAlternatives(answer, issuesPossibles(listes, prod)) };
+  };
 
   if (mode === 'doubler') {
     const { min, max, pas } = config;
     const a = randInt(min, max - 1);
-    return { text: `${a} × 2`, answer: arrondirValeur(a, pas) * 2 };
+    return sortie(`${a} × 2`, [arrondisAcceptables(a, pas), [2]]);
   }
 
   if (mode === 'parEntierPetit') {
     const { min, max, pas } = config;
     const a = randInt(min, max - 1);
-    const b = randInt(1, 9);
-    return { text: `${a} × ${b}`, answer: arrondirValeur(a, pas) * b };
+    const b = randInt(2, 9); // jamais × 1
+    return sortie(`${a} × ${b}`, [arrondisAcceptables(a, pas), [b]]);
   }
 
   if (mode === 'decimalParEntier') {
     const { max, decimals } = config;
     const a = genDecimalValue(max, [decimals]).value;
-    const b = randInt(1, 9);
-    return { text: `${a} × ${b}`, answer: Math.round(a) * b };
+    const b = randInt(2, 9); // jamais × 1
+    return sortie(`${a} × ${b}`, [arrondisAcceptables(a, 1), [b]]);
   }
 
   if (mode === 'deuxDecimaux') {
     const { max, decimals } = config;
     const a = genDecimalValue(max, [decimals]).value;
     const b = genDecimalValue(max, [decimals]).value;
-    return { text: `${a} × ${b}`, answer: Math.round(a) * Math.round(b) };
+    return sortie(`${a} × ${b}`, [arrondisAcceptables(a, 1), arrondisAcceptables(b, 1)]);
   }
 
   // mode === 'troisEntiers'
   const { min, max, pas } = config;
   const termes = [randInt(min, max - 1), randInt(min, max - 1), randInt(min, max - 1)];
-  const produit = termes.map(t => arrondirValeur(t, pas)).reduce((p, n) => p * n, 1);
-  return { text: termes.join(' × '), answer: produit };
+  return sortie(termes.join(' × '), termes.map(t => arrondisAcceptables(t, pas)));
 }
 
 function genResultatPlausible(config) {
@@ -3689,11 +3705,13 @@ window.MoteurAdaptatif = {
     <div class="stat-card"><div class="stat-val" style="color:var(--accent2)" id="stSkip">0</div><div class="stat-lbl">Sans réponse</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--accent4)" id="stPct">0%</div><div class="stat-lbl">Réussite</div></div>
   </div>
+  <div class="res-prog" id="resProg" style="display:none;"></div>
+  <div class="res-save" id="resSave" style="display:none;"></div>
   <div class="section-lbl">Détail des réponses</div>
   <div class="review-list" id="reviewList"></div>
   <div class="btn-row">
-    <button class="btn btn-secondary" onclick="nav(1,'back')">🏠 Menu</button>
-    <button class="btn btn-secondary" onclick="nav(3,'back')">⚙️ Retour</button>
+    <button class="btn btn-secondary" onclick="sortirDesResultats(1)">🏠 Menu</button>
+    <button class="btn btn-secondary" onclick="sortirDesResultats(3)">⚙️ Retour</button>
     <button class="btn btn-secondary" onclick="printResults()">📋 Correction</button>
   </div>
 </div>
@@ -5302,30 +5320,33 @@ function genQ(typeId,subIdx,lv){
 // ================================================================
 // GAME
 // ================================================================
-// Progression de l'élève pour la compétence choisie (Firestore), sinon palier 1.
-// "sauvegardable" = la lecture a réussi : on ne risque pas d'écraser une vraie progression par un palier 1 par défaut.
+// Progression de l'élève pour la compétence choisie (Firestore).
+// Un élève sans progression enregistrée démarre au palier 1 (ce n'est pas une erreur).
+// Si la lecture échoue (pas de réseau, serveur injoignable), on renvoie une erreur : le jeu ne démarre pas.
 async function chargerProgression(subId){
-  const defaut = MoteurAdaptatif.etatInitial();
+  const F = window.FirebaseApp;
+  const user = F && F.auth && F.auth.currentUser;
+  if(!user) return {erreur:true, messageErreur:"Tu n'es plus connecté. Reconnecte-toi pour jouer."};
   try{
-    const F = window.FirebaseApp;
-    const user = F && F.auth && F.auth.currentUser;
-    if(!user) return {etat:defaut, uid:null, sauvegardable:false};
     const snap = await F.getDoc(F.doc(F.db,'progressions',user.uid,'competences',subId));
     if(snap.exists()){
       const d = snap.data();
       const palier = Math.min(6, Math.max(1, parseInt(d.palier,10)||1));
       const compteur = Math.max(0, Number(d.compteur)||0);
-      return {etat:{palier,compteur}, uid:user.uid, sauvegardable:true};
+      return {etat:{palier,compteur}, uid:user.uid};
     }
-    return {etat:defaut, uid:user.uid, sauvegardable:true};
+    return {etat:MoteurAdaptatif.etatInitial(), uid:user.uid};
   }catch(e){
-    console.warn('Progression non chargée, palier 1 par défaut :', e);
-    return {etat:defaut, uid:null, sauvegardable:false};
+    console.warn('Lecture de la progression impossible :', e);
+    return {erreur:true, messageErreur:"Impossible de charger ta progression. Vérifie la connexion internet, puis réessaie."};
   }
 }
 
 // ---- État de la séance adaptative ----
-let etatProg=null, progUid=null, progSauvegardable=false;
+let etatProg=null, progUid=null, etatDebut=null;
+let partieActive=false;      // faux dès que la partie est finie ou quittée (ignore les minuteries en attente)
+let seanceId=null, seanceDebut=null;
+let sauvegardeProgOk=false, sauvegardeHistOk=false, histDejaTentee=false, sauvegardeEnCours=false;
 let reglagesActifs=null;     // réglages enseignant : valeurs par défaut pour l'instant (phase 5)
 let sessionLog=[];           // une entrée par réponse (sert à la sauvegarde et aux résultats)
 let seenKeys=new Set();
@@ -5354,9 +5375,10 @@ function adapterQuestion(raw, subId, palier){
     q.allowDec=q.values.some(estDec);
   } else {
     q.answer=raw.answer; q.answer2=null; q.values=[raw.answer]; q.labels=[];
-    q.allowDec = estDec(raw.answer) || estDec(raw.altAnswer);
+    q.allowDec = estDec(raw.answer) || (raw.altAnswers||[raw.altAnswer]).some(estDec);
   }
-  if(raw.altAnswer!==undefined) q.altAnswer=raw.altAnswer;
+  q.acceptees=raw.altAnswers||(raw.altAnswer!==undefined?[raw.altAnswer]:[]); // autres réponses acceptées
+  if(q.acceptees.length) q.altAnswer=q.acceptees[0];
   if(raw.isFrac){ q.isFrac=true; q.fracDisplay=raw.frac; }
   if(Array.isArray(raw.options)){ q.isChoice=true; q.options=raw.options.slice(); }
   if(subId==='maisonsDesNombres' && raw.cible!==undefined){
@@ -5411,13 +5433,125 @@ async function startGame(){
   btn.disabled=true; btn.textContent='Chargement…';
   const p=await chargerProgression(selTypeId);
   btn.disabled=false; btn.textContent='▶ Commencer !';
-  etatProg=p.etat; progUid=p.uid; progSauvegardable=p.sauvegardable;
+  if(p.erreur){
+    afficherDialogue({icone:'📡', titre:'Connexion impossible', texte:p.messageErreur, couleur:'var(--accent2)',
+      boutons:[
+        {label:'Retour', action:(fermer)=>fermer()},
+        {label:'Réessayer', primaire:true, action:(fermer)=>{fermer();startGame();}}
+      ]});
+    return;
+  }
+  etatProg=p.etat; progUid=p.uid; etatDebut={palier:p.etat.palier, compteur:p.etat.compteur};
   reglagesActifs=MoteurAdaptatif.reglagesParDefaut;
+  seanceId=Date.now().toString(36)+Math.random().toString(36).slice(2,8); seanceDebut=new Date();
+  sauvegardeProgOk=false; sauvegardeHistOk=false; histDejaTentee=false; sauvegardeEnCours=false;
   sessionLog=[]; seenKeys=new Set(); questions=[];
-  curQ=0;score=0;answers=[];answered=false;paused=false;
+  curQ=0;score=0;answers=[];answered=false;paused=false;partieActive=true;
   document.getElementById('gQTotal').textContent=nbQ;
   nav(4,'fwd');
   setTimeout(showQuestion,300);
+}
+
+// ================================================================
+// BOÎTE DE DIALOGUE GÉNÉRIQUE + SAUVEGARDE FIRESTORE
+// ================================================================
+function afficherDialogue({icone,titre,texte,boutons,couleur}){
+  const old=document.getElementById('dialogueModal'); if(old)old.remove();
+  const modal=document.createElement('div');
+  modal.id='dialogueModal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:300;padding:20px;';
+  const box=document.createElement('div');
+  box.style.cssText='background:var(--card);border-radius:20px;padding:28px 24px;width:100%;max-width:340px;text-align:center;border:2px solid '+(couleur||'var(--accent1)')+';';
+  box.innerHTML=`<div style="font-size:1.8rem;margin-bottom:10px;">${icone}</div>
+    <div style="font-family:'Fredoka One',cursive;font-size:1.3rem;margin-bottom:8px;">${titre}</div>
+    <div style="font-size:0.85rem;color:var(--muted);margin-bottom:22px;line-height:1.4;">${texte}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;" id="dialogueBtns"></div>`;
+  modal.appendChild(box); document.body.appendChild(modal);
+  const fermer=()=>modal.remove();
+  boutons.forEach(b=>{
+    const el=document.createElement('button');
+    el.textContent=b.label;
+    el.style.cssText='flex:1;min-width:110px;padding:12px;border-radius:50px;border:'+(b.primaire?'none':'2px solid var(--surface)')+';background:'+(b.primaire?(couleur||'var(--accent1)'):'var(--surface)')+';color:'+(b.primaire?'#1a0000':'var(--muted)')+';font-family:Nunito,sans-serif;font-size:0.95rem;font-weight:800;cursor:pointer;';
+    el.onclick=()=>b.action(fermer,el);
+    box.querySelector('#dialogueBtns').appendChild(el);
+  });
+}
+
+// Résumé léger d'une séance (pour l'historique et les courbes enseignant)
+function resumeSeance(terminee){
+  const avecTemps=sessionLog.filter(l=>!l.nonReponse&&l.tempsSecondes!==null);
+  const moy=avecTemps.length?Math.round(avecTemps.reduce((s,l)=>s+l.tempsSecondes,0)/avecTemps.length*10)/10:null;
+  return {
+    sousCompetence:selTypeId,
+    categorie:MoteurAdaptatif.CATEGORIE_PAR_SOUS_COMPETENCE[selTypeId]||null,
+    date:seanceDebut, terminee,
+    nbQuestions:sessionLog.length,
+    nbCorrectes:sessionLog.filter(l=>l.ok).length,
+    nbErreurs:sessionLog.filter(l=>!l.ok&&!l.nonReponse).length,
+    nbSansReponse:sessionLog.filter(l=>l.nonReponse).length,
+    palierDebut:etatDebut.palier, compteurDebut:etatDebut.compteur,
+    palierFin:etatProg.palier, compteurFin:etatProg.compteur,
+    tempsMoyenSecondes:moy,
+  };
+}
+
+// Écrit la progression puis la ligne d'historique. Lance une erreur si l'un des deux échoue ;
+// un nouvel essai ne refait que ce qui n'est pas encore écrit.
+async function sauvegarderSeance(terminee){
+  if(sessionLog.length===0) return;               // aucune réponse donnée : rien à enregistrer
+  const F=window.FirebaseApp;
+  if(!progUid||!F) throw new Error('non connecté');
+  if(!sauvegardeProgOk){
+    await F.setDoc(F.doc(F.db,'progressions',progUid,'competences',selTypeId),
+      {palier:etatProg.palier, compteur:etatProg.compteur, maj:new Date()});
+    sauvegardeProgOk=true;
+  }
+  if(!sauvegardeHistOk){
+    const dejaTentee=histDejaTentee; histDejaTentee=true;
+    try{
+      await F.setDoc(F.doc(F.db,'seances',progUid,'historique',seanceId), resumeSeance(terminee));
+    }catch(e){
+      // Les règles n'autorisent que la CRÉATION d'une séance. Si un 2e essai est refusé,
+      // c'est que le 1er avait en fait abouti (réponse perdue en route) : la séance est bien enregistrée.
+      if(!(dejaTentee&&e&&e.code==='permission-denied')) throw e;
+    }
+    sauvegardeHistOk=true;
+  }
+}
+function sauvegardeEnAttente(){ return sessionLog.length>0 && !(sauvegardeProgOk&&sauvegardeHistOk); }
+
+function afficherStatutSauvegarde(etat){
+  const el=document.getElementById('resSave'); if(!el)return;
+  el.style.display='block';
+  if(etat==='cours') el.innerHTML='⏳ Enregistrement de ta séance…';
+  else if(etat==='ok') el.innerHTML='✅ Séance enregistrée';
+  else el.innerHTML='⚠️ Ta séance n\'est pas enregistrée (problème de connexion). <button class="res-retry" onclick="lancerSauvegardeFin()">Réessayer</button>';
+}
+async function lancerSauvegardeFin(){
+  if(sauvegardeEnCours)return;
+  sauvegardeEnCours=true; afficherStatutSauvegarde('cours');
+  try{ await sauvegarderSeance(true); afficherStatutSauvegarde('ok'); }
+  catch(e){ console.warn('Sauvegarde impossible :',e); afficherStatutSauvegarde('erreur'); }
+  sauvegardeEnCours=false;
+}
+// Quitter l'écran de résultats : prévenir si la séance n'est pas encore enregistrée
+function sortirDesResultats(dest){
+  if(!sauvegardeEnAttente()){ nav(dest,'back'); return; }
+  afficherDialogue({icone:'⚠️', titre:'Séance non enregistrée', texte:'Si tu quittes maintenant, cette séance sera perdue.', couleur:'var(--accent2)',
+    boutons:[
+      {label:'Quitter', action:(fermer)=>{fermer();nav(dest,'back');}},
+      {label:'Réessayer', primaire:true, action:(fermer)=>{fermer();lancerSauvegardeFin();}}
+    ]});
+}
+
+// Palier et points affichés à la fin de la séance
+function afficherBilanProgression(){
+  const el=document.getElementById('resProg'); if(!el)return;
+  const seuil=MoteurAdaptatif.resoudreReglage(selTypeId,'seuilProgression',reglagesActifs);
+  let html='';
+  if(etatProg.palier>etatDebut.palier) html+=`<div class="res-prog-up">🎉 Bravo, tu passes au palier ${etatProg.palier} !</div>`;
+  html+=`<div>Palier ${etatProg.palier} · ${fmt(etatProg.compteur)} / ${fmt(seuil)} points</div>`;
+  el.innerHTML=html; el.style.display='block';
 }
 
 // ===== FRACTION SVG BUILDER =====
@@ -5537,6 +5671,7 @@ function isTouchDevice(){
 }
 
 function showQuestion(){
+  if(!partieActive)return;
   if(curQ>=nbQ){endGame();return;}
   answered=false;
   if(!questions[curQ]) questions[curQ]=genererQuestion();
@@ -5654,7 +5789,10 @@ function checkAutoSubmit(){
     // Integer: validate when typed digit count >= expected digits of answer
     const digits=raw.replace(/[^0-9]/g,'');
     if(digits.length===0)return;
-    if(digits.length>=digitCount(q.answer)) submitAnswer();
+    const acceptees=[q.answer].concat(q.acceptees||[]);
+    const saisi=parseAns(raw);
+    if(acceptees.some(x=>Math.abs(saisi-x)<0.001)) { submitAnswer(); return; }   // une réponse acceptée est tapée
+    if(digits.length>=Math.max(...acceptees.map(digitCount))) submitAnswer();      // sinon : attendre le plus long
   }
 }
 
@@ -5731,7 +5869,7 @@ function submitAnswer(){
   if(v==='') return conclure(q,false,null,true); // champ vide = non-réponse
   const given=parseAns(v);
   let ok=Math.abs(given-q.answer)<0.001;
-  if(!ok&&q.altAnswer!==undefined) ok=Math.abs(given-q.altAnswer)<0.001; // arrondi ambigu
+  if(!ok&&q.acceptees&&q.acceptees.some(x=>Math.abs(given-x)<0.001)) ok=true; // arrondi ambigu : plusieurs réponses acceptées
   inp.className='answer-input '+(ok?'correct':'wrong');
   maisonFeedback(ok);
   conclure(q,ok,v,false);
@@ -5777,15 +5915,22 @@ function formatMulti(vals,labels){
   return vals.map((v,i)=>v+(labels[i]?' '+labels[i]:'')).join(' ');
 }
 
+// Réponse attendue, avec les autres réponses acceptées : "410 (ou 400)"
+function reponseAttendue(a){
+  const base=a.isDual?formatMulti(a.values.map(fmt),a.labels):fmt(a.ans);
+  return (a.alts&&a.alts.length)?base+' (ou '+a.alts.map(fmt).join(' ou ')+')':base;
+}
+
 function recordAns(given,ok,skipped){
   const cq=questions[curQ];
-  answers.push({q:(cq.isFrac?fracLabel(cq):cq.text)+(cq.consigne?' ('+cq.consigne+')':''), ans:cq.answer, values:cq.values, labels:cq.labels||[],
+  answers.push({q:(cq.isFrac?fracLabel(cq):cq.text)+(cq.consigne?' ('+cq.consigne+')':''), ans:cq.answer, alts:(cq.acceptees||[]), values:cq.values, labels:cq.labels||[],
                 given, ok, skipped, isDual:cq.isDual});
 }
 
-function nextQ(){curQ++;if(curQ>=nbQ)endGame();else showQuestion();}
+function nextQ(){if(!partieActive)return;curQ++;if(curQ>=nbQ)endGame();else showQuestion();}
 
 function endGame(){
+  partieActive=false;
   nav(5,'fwd');
   const total=nbQ,correct=answers.filter(a=>a.ok).length;
   const wrong=answers.filter(a=>!a.ok&&!a.skipped).length;
@@ -5806,11 +5951,13 @@ function endGame(){
     const div=document.createElement('div');
     div.className='review-item';
     const givenStr=a.skipped?'—':a.given;
-    const correctStr=a.isDual?formatMulti(a.values.map(fmt),a.labels):`${fmt(a.ans)}`;
+    const correctStr=reponseAttendue(a);
     const cls=a.ok?'correct-a':'wrong-a';
     div.innerHTML=`<span class="review-q">${a.q}</span><span class="review-given ${cls}">${givenStr}</span>${!a.ok?`<span class="review-ans">→ ${correctStr}</span>`:''}<span class="review-icon">${a.ok?'✅':a.skipped?'➖':'❌'}</span>`;
     list.appendChild(div);
   });
+  afficherBilanProgression();
+  lancerSauvegardeFin();
 }
 
 function togglePause(){
@@ -5861,32 +6008,29 @@ function togglePause(){
 }
 
 function quitGame(){
-  // Remove any existing modal
-  const old=document.getElementById('quitModal');
-  if(old)old.remove();
   suspendreChrono();
-
-  const modal=document.createElement('div');
-  modal.id='quitModal';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:300;padding:20px;';
-
-  const box=document.createElement('div');
-  box.style.cssText='background:var(--card);border-radius:20px;padding:28px 24px;width:100%;max-width:320px;text-align:center;border:2px solid var(--accent1);';
-
-  box.innerHTML=`
-    <div style="font-size:1.8rem;margin-bottom:10px;">🚪</div>
-    <div style="font-family:'Fredoka One',cursive;font-size:1.3rem;margin-bottom:6px;">Quitter la partie ?</div>
-    <div style="font-size:0.82rem;color:var(--muted);margin-bottom:22px;">Ta progression sera perdue.</div>
-    <div style="display:flex;gap:10px;">
-      <button id="quitCancel" style="flex:1;padding:12px;border-radius:50px;border:2px solid var(--surface);background:var(--surface);color:var(--muted);font-family:Nunito,sans-serif;font-size:0.95rem;font-weight:800;cursor:pointer;">Continuer</button>
-      <button id="quitConfirm" style="flex:1;padding:12px;border-radius:50px;border:none;background:var(--accent1);color:#1a0000;font-family:Nunito,sans-serif;font-size:0.95rem;font-weight:800;cursor:pointer;">Quitter</button>
-    </div>`;
-
-  modal.appendChild(box);
-  document.body.appendChild(modal);
-
-  document.getElementById('quitConfirm').onclick=()=>{modal.remove();nav(3,'back');};
-  document.getElementById('quitCancel').onclick=()=>{modal.remove();reprendreChrono();};
+  afficherDialogue({icone:'🚪', titre:'Quitter la partie ?',
+    texte: sessionLog.length>0 ? 'Tes réponses déjà données seront enregistrées.' : "Tu n'as pas encore répondu à une question.",
+    boutons:[
+      {label:'Continuer', action:(fermer)=>{fermer();reprendreChrono();}},
+      {label:'Quitter', primaire:true, action:(fermer,btn)=>{partieActive=false;quitterEtSauvegarder(fermer,btn);}}
+    ]});
+}
+async function quitterEtSauvegarder(fermer,btn){
+  btn.disabled=true; btn.textContent='Enregistrement…';
+  try{
+    await sauvegarderSeance(false);
+    fermer(); nav(3,'back');
+  }catch(e){
+    console.warn('Sauvegarde impossible :',e);
+    fermer();
+    afficherDialogue({icone:'⚠️', titre:'Séance non enregistrée', couleur:'var(--accent2)',
+      texte:"Connexion impossible : tes réponses n'ont pas pu être enregistrées.",
+      boutons:[
+        {label:'Quitter sans enregistrer', action:(f)=>{f();nav(3,'back');}},
+        {label:'Réessayer', primaire:true, action:(f,b)=>quitterEtSauvegarder(f,b)}
+      ]});
+  }
 }
 function drawResultSvg(pct){
   const svg=document.getElementById('resSvg');
@@ -6001,7 +6145,7 @@ function printResults(){
   const rowsData=answers.map((a,i)=>{
     const q=a.q.replace(' = ?','').replace(/\n/g,' ');
     const given=a.skipped?'—':(a.given||'—');
-    const corr=a.isDual?formatMulti(a.values.map(fmt),a.labels):fmt(a.ans);
+    const corr=reponseAttendue(a);
     const icon=a.ok?'✅':a.skipped?'➖':'❌';
     return {num:i+1,q,given,corr,ok:a.ok,skipped:a.skipped,icon};
   });
