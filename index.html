@@ -487,6 +487,22 @@ body {
 .progres-row { display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--card); border-radius:10px; padding:8px 11px; font-size:0.75rem; font-weight:700; line-height:1.3; }
 .progres-nom { flex:1; min-width:0; }
 .progres-row .etoiles-slot { flex-shrink:0; min-height:0; }
+#sEnsTableau { max-width:none; }
+.tableau-wrap { width:100%; overflow-x:auto; border-radius:12px; background:var(--card); }
+.tableau-classe { border-collapse:separate; border-spacing:0; font-size:0.72rem; }
+.tableau-classe th, .tableau-classe td { padding:0; }
+.tableau-classe .th-eleve { position:sticky; left:0; z-index:2; background:var(--card2); text-align:left; padding:6px 10px; min-width:84px; max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:800; border-right:2px solid var(--surface); }
+.tableau-classe thead .th-eleve { z-index:3; }
+.tableau-classe .th-cat { padding:6px 4px; text-align:center; font-weight:800; letter-spacing:1px; text-transform:uppercase; font-size:0.65rem; border-left:2px solid var(--surface); }
+.tableau-classe .th-comp { height:170px; width:28px; min-width:28px; vertical-align:bottom; padding-bottom:6px; }
+.tableau-classe .th-comp span { display:block; writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; max-height:160px; overflow:hidden; text-overflow:ellipsis; font-size:0.66rem; font-weight:700; color:var(--muted); margin:0 auto; }
+.tableau-classe td { width:28px; min-width:28px; height:34px; text-align:center; border-top:1px solid var(--surface); }
+.tableau-classe .debut-cat { border-left:2px solid var(--surface); }
+.cel { position:relative; width:24px; height:26px; margin:3px auto; border-radius:6px; font-weight:800; line-height:26px; color:#1a1d2e; }
+.cel i { position:absolute; left:0; bottom:0; height:3px; background:#1a1d2e; opacity:0.55; border-radius:0 0 6px 6px; }
+.cel.p1 { background:#5b6ba6; color:#fff; } .cel.p2 { background:#4d96ff; } .cel.p3 { background:#4ecdc4; }
+.cel.p4 { background:#6bcb77; } .cel.p5 { background:#ffd93d; } .cel.p6 { background:#ff9f43; }
+.cel.vide { background:transparent; color:var(--muted); opacity:0.45; }
 .res-prog { text-align:center; font-weight:800; font-size:1.05rem; margin:6px 0 4px; }
 .res-prog-up { color:var(--accent3); font-family:'Fredoka One',cursive; font-size:1.2rem; margin-bottom:2px; }
 .res-save { text-align:center; font-size:0.85rem; font-weight:700; color:var(--muted); margin:2px 0 10px; }
@@ -3484,6 +3500,7 @@ window.MoteurAdaptatif = {
   <div class="app-title" style="margin-top:40px;" id="ensClasseTitre">Classe</div>
   <div class="login-box" style="margin-top:24px;max-width:480px;">
     <div id="listeEleves"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:6px;" onclick="ouvrirTableauClasse()">📊 Tableau de la classe</button>
     <div style="margin-top:20px;">
       <input type="text" class="login-field" id="nouvelEleveId" placeholder="Identifiant (ex: lea)">
       <input type="text" class="login-field" id="nouvelElevePrenom" placeholder="Prénom (ex: Léa)">
@@ -3493,6 +3510,28 @@ window.MoteurAdaptatif = {
     </div>
     <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="nav('EnsAdmin')">← Retour aux classes</button>
   </div>
+</div>
+
+<!-- ====================================================
+     ÉCRAN ENSEIGNANT : FICHE D'UN ÉLÈVE (étoiles par compétence)
+===================================================== -->
+<div class="screen" id="sEnsEleve">
+  <div class="app-title" style="margin-top:40px;font-size:1.8rem;" id="ensEleveTitre">Élève</div>
+  <div class="login-box" style="margin-top:12px;max-width:480px;">
+    <div class="progres-legende" id="ensEleveSous"></div>
+    <div id="ensEleveListe" style="display:flex;flex-direction:column;gap:7px;"></div>
+    <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="nav('EnsClasse')">← Retour à la classe</button>
+  </div>
+</div>
+
+<!-- ====================================================
+     ÉCRAN ENSEIGNANT : TABLEAU DE LA CLASSE (élèves × 51 compétences)
+===================================================== -->
+<div class="screen" id="sEnsTableau">
+  <div class="app-title" style="margin-top:40px;font-size:1.8rem;" id="ensTableauTitre">Tableau de la classe</div>
+  <div class="progres-legende" style="margin-top:8px;">Chiffre = palier (1 à 6) · petite barre = avancement vers le palier suivant · point = pas encore travaillée. Fais défiler vers la droite pour voir toutes les compétences.</div>
+  <div class="tableau-wrap" id="ensTableauBox"></div>
+  <button class="btn btn-secondary" style="margin-top:20px;width:100%;max-width:480px;" onclick="nav('EnsClasse')">← Retour à la classe</button>
 </div>
 
 <!-- ====================================================
@@ -3932,6 +3971,7 @@ async function rafraichirListeEleves() {
         rafraichirListeEleves();
       }
     };
+    div.onclick = () => ouvrirFicheEleve(e);
     conteneur.appendChild(div);
   });
 }
@@ -3955,6 +3995,140 @@ async function ajouterNouvelEleve() {
       ? 'Cet identifiant est déjà pris dans cette classe.'
       : "Impossible d'ajouter cet élève.";
   }
+}
+
+// ================================================================
+// SUIVI ENSEIGNANT : fiche d'un élève + tableau de la classe
+// ================================================================
+async function lireProgressionsEleve(uid){
+  const F=window.FirebaseApp;
+  const snap=await F.getDocs(F.collection(F.db,'progressions',uid,'competences'));
+  const m={};
+  snap.forEach(d=>{
+    const x=d.data();
+    m[d.id]={palier:Math.min(6,Math.max(1,parseInt(x.palier,10)||1)), compteur:Math.max(0,Number(x.compteur)||0)};
+  });
+  return m;
+}
+const nomCourt=nom=>nom.replace(/\n/g,' ').replace(/\s*\(.*?\)/g,'').trim();
+function messageAvecBouton(texte,labelBouton,onclick){
+  const d=document.createElement('div'); d.className='progres-msg';
+  d.appendChild(document.createTextNode(texte));
+  if(labelBouton){
+    d.appendChild(document.createElement('br')); d.appendChild(document.createElement('br'));
+    const b=document.createElement('button'); b.className='res-retry'; b.textContent=labelBouton; b.onclick=onclick; d.appendChild(b);
+  }
+  return d;
+}
+
+// ---- Fiche d'un élève ----
+let jetonFiche=0, eleveFiche=null;
+async function ouvrirFicheEleve(eleve){
+  eleveFiche=eleve;
+  const jeton=++jetonFiche;
+  document.getElementById('ensEleveTitre').textContent=eleve.prenom;
+  document.getElementById('ensEleveSous').textContent='identifiant : '+eleve.identifiant;
+  const liste=document.getElementById('ensEleveListe');
+  liste.innerHTML='<div class="progres-msg">⏳ Chargement…</div>';
+  nav('EnsEleve','fwd');
+  try{
+    const m=await lireProgressionsEleve(eleve.uid||eleve.id);
+    if(jeton!==jetonFiche)return;
+    rendreFicheEleve(m);
+  }catch(e){
+    console.warn('Lecture de la fiche impossible :',e);
+    if(jeton!==jetonFiche)return;
+    liste.innerHTML='';
+    liste.appendChild(messageAvecBouton('⚠️ Impossible de charger les progrès de cet élève (problème de connexion).','Réessayer',()=>ouvrirFicheEleve(eleveFiche)));
+  }
+}
+function rendreFicheEleve(m){
+  const liste=document.getElementById('ensEleveListe');
+  liste.innerHTML='';
+  ORDRE_CATS.forEach(cat=>{
+    const titre=document.createElement('div');
+    titre.className='autres-section-title'; titre.style.color=COULEURS_CAT[cat]; titre.textContent=CAT_NAMES[cat];
+    liste.appendChild(titre);
+    TYPES[cat].forEach(t=>{
+      const p=m[t.id]||{palier:1,compteur:0};
+      const row=document.createElement('div'); row.className='progres-row';
+      const nom=document.createElement('div'); nom.className='progres-nom'; nom.textContent=t.name.replace(/\n/g,' ');
+      const slot=document.createElement('span'); slot.className='etoiles-slot';
+      slot.innerHTML=etoilesHTML(p.palier,p.compteur,seuilDe(t.id));
+      row.appendChild(nom); row.appendChild(slot); liste.appendChild(row);
+    });
+  });
+}
+
+// ---- Tableau de la classe : élèves en lignes, 51 compétences en colonnes ----
+let jetonTableau=0;
+async function ouvrirTableauClasse(){
+  const jeton=++jetonTableau;
+  document.getElementById('ensTableauTitre').textContent=classeOuverte.nom;
+  const box=document.getElementById('ensTableauBox');
+  box.innerHTML='<div class="progres-msg">⏳ Chargement…</div>';
+  nav('EnsTableau','fwd');
+  try{
+    const eleves=(await window.FirebaseApp.listerEleves(classeOuverte.id)).slice().sort((a,b)=>String(a.prenom).localeCompare(String(b.prenom),'fr'));
+    if(jeton!==jetonTableau)return;
+    if(eleves.length===0){ box.innerHTML='<div class="progres-msg">Aucun élève dans cette classe.</div>'; return; }
+    const res=await Promise.allSettled(eleves.map(e=>lireProgressionsEleve(e.uid||e.id)));
+    if(jeton!==jetonTableau)return;
+    rendreTableauClasse(eleves,res);
+  }catch(e){
+    console.warn('Lecture du tableau impossible :',e);
+    if(jeton!==jetonTableau)return;
+    box.innerHTML='';
+    box.appendChild(messageAvecBouton('⚠️ Impossible de charger la classe (problème de connexion).','Réessayer',ouvrirTableauClasse));
+  }
+}
+function rendreTableauClasse(eleves,resultats){
+  const box=document.getElementById('ensTableauBox');
+  const table=document.createElement('table'); table.className='tableau-classe';
+  // En-tête 1 : catégories
+  const thead=document.createElement('thead');
+  const r1=document.createElement('tr'), r2=document.createElement('tr');
+  const coin=document.createElement('th'); coin.className='th-eleve'; coin.rowSpan=2; coin.textContent='Élève'; r1.appendChild(coin);
+  ORDRE_CATS.forEach(cat=>{
+    const th=document.createElement('th'); th.className='th-cat'; th.colSpan=TYPES[cat].length;
+    th.style.color=COULEURS_CAT[cat]; th.textContent=CAT_NAMES[cat]; r1.appendChild(th);
+    TYPES[cat].forEach((t,i)=>{
+      const c=document.createElement('th'); c.className='th-comp'+(i===0?' debut-cat':''); c.title=t.name.replace(/\n/g,' ');
+      const sp=document.createElement('span'); sp.textContent=nomCourt(t.name); c.appendChild(sp); r2.appendChild(c);
+    });
+  });
+  thead.appendChild(r1); thead.appendChild(r2); table.appendChild(thead);
+  // Corps : un élève par ligne
+  const tbody=document.createElement('tbody');
+  eleves.forEach((e,idx)=>{
+    const tr=document.createElement('tr');
+    const th=document.createElement('th'); th.className='th-eleve'; th.textContent=e.prenom; th.title=e.prenom+' (identifiant : '+e.identifiant+')';
+    tr.appendChild(th);
+    const r=resultats[idx];
+    if(r.status!=='fulfilled'){
+      const td=document.createElement('td'); td.colSpan=51; td.style.textAlign='left'; td.style.padding='0 10px'; td.style.color='var(--accent2)';
+      td.textContent='⚠️ progrès non chargés'; tr.appendChild(td); tbody.appendChild(tr); return;
+    }
+    const m=r.value;
+    ORDRE_CATS.forEach(cat=>{
+      TYPES[cat].forEach((t,i)=>{
+        const td=document.createElement('td'); if(i===0)td.className='debut-cat';
+        const cel=document.createElement('div');
+        const p=m[t.id];
+        if(!p){ cel.className='cel vide'; cel.textContent='·'; td.title=t.name.replace(/\n/g,' ')+' : pas encore travaillée'; }
+        else{
+          const seuil=seuilDe(t.id); const pct=Math.max(0,Math.min(100,Math.round(seuil>0?p.compteur/seuil*100:0)));
+          cel.className='cel p'+p.palier; cel.textContent=p.palier;
+          if(pct>0){ const barre=document.createElement('i'); barre.style.width=pct+'%'; cel.appendChild(barre); }
+          td.title=t.name.replace(/\n/g,' ')+' : palier '+p.palier+', '+fmt(p.compteur)+' / '+fmt(seuil)+' points';
+        }
+        td.appendChild(cel); tr.appendChild(td);
+      });
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  box.innerHTML=''; box.appendChild(table);
 }
 
 // ================================================================
