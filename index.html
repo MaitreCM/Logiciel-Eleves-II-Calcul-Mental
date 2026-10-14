@@ -503,6 +503,13 @@ body {
 .cel.p1 { background:#5b6ba6; color:#fff; } .cel.p2 { background:#4d96ff; } .cel.p3 { background:#4ecdc4; }
 .cel.p4 { background:#6bcb77; } .cel.p5 { background:#ffd93d; } .cel.p6 { background:#ff9f43; }
 .cel.vide { background:transparent; color:var(--muted); opacity:0.45; }
+.reg-label { font-size:0.8rem; font-weight:800; margin:14px 0 4px; }
+.reg-aide { font-size:0.72rem; color:var(--muted); margin:2px 0 8px; line-height:1.35; }
+.reg-statut { text-align:center; font-size:0.8rem; font-weight:800; min-height:1.2em; margin:10px 0 2px; }
+.reg-temps-row { display:flex; align-items:center; gap:8px; margin:6px 0; font-size:0.8rem; font-weight:700; }
+.reg-temps-row .reg-p { width:62px; flex-shrink:0; }
+.reg-temps-row .reg-auto { flex:1; color:var(--muted); font-weight:600; }
+.reg-temps-row input { width:84px; margin-bottom:0; padding:8px 10px; }
 .res-prog { text-align:center; font-weight:800; font-size:1.05rem; margin:6px 0 4px; }
 .res-prog-up { color:var(--accent3); font-family:'Fredoka One',cursive; font-size:1.2rem; margin-bottom:2px; }
 .res-save { text-align:center; font-size:0.85rem; font-weight:700; color:var(--muted); margin:2px 0 10px; }
@@ -827,7 +834,7 @@ body.cat-proport { --clr-active: #0652dd; }
 
   // Exposés pour le reste du programme (script classique, non-module)
   window.FirebaseApp = {
-    auth, db, doc, getDoc, setDoc, updateDoc, collection, getDocs,
+    auth, db, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs,
     fabriquerEmailEleve, connecterEleve, deconnecter,
     inscrireEnseignant, connecterEnseignant, estCompteEnseignant,
     creerClasse, listerClasses, supprimerClasse,
@@ -3342,6 +3349,7 @@ const reglagesParDefaut = {
   },
   categories: {},       // ex: { addition: { seuilProgression: 30 } }
   sousCompetences: {},  // ex: { additionner2Entiers: { penaliteErreur: 2 } }
+  temps: {},            // ex: { additionner2Entiers: { 3: 25 } } : temps de référence imposé (en secondes) au palier 3
 };
 
 function resoudreReglage(subCompetenceId, cle, reglages = reglagesParDefaut) {
@@ -3354,6 +3362,10 @@ function resoudreReglage(subCompetenceId, cle, reglages = reglagesParDefaut) {
 }
 
 function tempsReference(subCompetenceId, palier, reglages = reglagesParDefaut) {
+  // Un temps choisi par l'enseignant pour cette sous-compétence ET ce palier remplace le calcul automatique
+  // (reglages.temps = { sousCompetenceId: { "1": secondes, "3": secondes, ... } })
+  const choisi = reglages.temps && reglages.temps[subCompetenceId] && reglages.temps[subCompetenceId][palier];
+  if (typeof choisi === 'number' && choisi >= 1) return Math.round(choisi);
   const auto = estimerTempsReference(subCompetenceId, palier);
   const ajustement = resoudreReglage(subCompetenceId, 'ajustementTempsSecondes', reglages);
   return Math.max(1, auto + ajustement);
@@ -3489,6 +3501,7 @@ window.MoteurAdaptatif = {
       <div class="login-error" id="ensAdminErreur"></div>
       <button class="btn btn-primary" onclick="creerNouvelleClasse()">+ Créer une classe</button>
     </div>
+    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="ouvrirReglages()">⚙️ Réglages du logiciel</button>
     <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="deconnecterEnseignant()">Déconnexion</button>
   </div>
 </div>
@@ -3509,6 +3522,18 @@ window.MoteurAdaptatif = {
       <button class="btn btn-primary" onclick="ajouterNouvelEleve()">+ Ajouter l'élève</button>
     </div>
     <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="nav('EnsAdmin')">← Retour aux classes</button>
+  </div>
+</div>
+
+<!-- ====================================================
+     ÉCRAN ENSEIGNANT : RÉGLAGES DU MOTEUR ADAPTATIF
+===================================================== -->
+<div class="screen" id="sEnsReglages">
+  <div class="app-title" style="margin-top:40px;font-size:1.8rem;">⚙️ Réglages</div>
+  <div class="login-box" style="margin-top:12px;max-width:520px;">
+    <div class="progres-legende">Ces réglages valent pour toutes tes classes. Un champ laissé vide reprend la valeur du niveau au-dessus : compétence → catégorie → général.</div>
+    <div id="regCorps"></div>
+    <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="quitterReglages()">← Retour aux classes</button>
   </div>
 </div>
 
@@ -3809,20 +3834,43 @@ async function tenterConnexion() {
   }
 }
 
+async function eleveEstRetire(uid){
+  const F=window.FirebaseApp;
+  const snap=await F.getDoc(F.doc(F.db,'elevesRetires',uid));
+  return snap.exists();
+}
+async function refuserEleveRetire(){
+  eleveConnecte=null; progressionsEleve=null; progressionsEtat='idle'; reglagesActifs=null; partieActive=false;
+  try{ await window.FirebaseApp.deconnecter(); }catch(e){ console.warn(e); }
+  nav(0);
+  afficherDialogue({icone:'🚫', titre:'Compte désactivé', texte:"Ton compte n'est plus actif. Demande à ton enseignant.",
+    boutons:[{label:'OK', primaire:true, action:(fermer)=>fermer()}]});
+}
+
 // Appelée automatiquement par le script Firebase dès qu'une connexion
 // réussit (login manuel) ou qu'une session existante est retrouvée
 // (rechargement de page).
-window.onEleveConnecte = function(user) {
+window.onEleveConnecte = async function(user) {
   eleveConnecte = { uid: user.uid, email: user.email };
-  progressionsEleve=null; progressionsEtat='idle';
+  try{
+    if(await eleveEstRetire(user.uid)){ await refuserEleveRetire(); return; }
+  }catch(e){
+    console.warn('Vérification du compte impossible :',e);
+    afficherDialogue({icone:'📡', titre:'Connexion impossible', texte:"Impossible de vérifier ton compte. Vérifie la connexion internet, puis réessaie.", couleur:'var(--accent2)',
+      boutons:[{label:'Réessayer', primaire:true, action:(fermer)=>{fermer();window.onEleveConnecte(user);}}]});
+    return;
+  }
+  progressionsEleve=null; progressionsEtat='idle'; reglagesActifs=null;
   nav(1);
   chargerToutesProgressions();
+  // pour que les étoiles utilisent le bon seuil dès l'accueil (en cas d'échec : valeurs par défaut, le jeu, lui, exigera les réglages)
+  chargerReglagesEleve().then(r=>{ reglagesActifs=r; majEtoilesVisibles(); }).catch(()=>{});
 };
 
 function deconnecterEleve() {
   window.FirebaseApp.deconnecter();
   eleveConnecte = null;
-  progressionsEleve=null; progressionsEtat='idle';
+  progressionsEleve=null; progressionsEtat='idle'; reglagesActifs=null;
   nav(0);
 }
 
@@ -3864,6 +3912,7 @@ async function tenterInscriptionEnseignant() {
 
 window.onEnseignantConnecte = function(user) {
   enseignantConnecte = { uid: user.uid, email: user.email };
+  reglagesEnsCharges=false; reglagesEdition=null;
   nav('EnsAdmin');
   rafraichirListeClasses();
 };
@@ -3872,6 +3921,7 @@ function deconnecterEnseignant() {
   window.FirebaseApp.deconnecter();
   enseignantConnecte = null;
   classeOuverte = null;
+  reglagesEnsCharges=false; reglagesEdition=null; reglagesActifs=null;
   nav(0);
 }
 
@@ -3898,13 +3948,15 @@ async function rafraichirListeClasses() {
                       <button class="supprimer" title="Supprimer la classe">✕</button>`;
     div.querySelector('.supprimer').onclick = async (ev) => {
       ev.stopPropagation();
-      if (confirm(`Supprimer la classe "${c.nom}" et tous ses élèves ? Cette action est irréversible.`)) {
+      if (confirm(`Supprimer la classe "${c.nom}", tous ses élèves et toutes leurs données (progression, historique) ?\n\nLes élèves ne pourront plus se connecter. Cette action est irréversible.`)) {
         try {
-          await window.FirebaseApp.supprimerClasse(c.id);
+          await supprimerClasseComplete(c);
           rafraichirListeClasses();
         } catch (e) {
           console.error('Erreur supprimerClasse:', e);
-          alert("Impossible de supprimer la classe (" + (e.code || e.message || e) + ").");
+          if (e.echecs) alert("Suppression incomplète : les données de " + e.echecs.join(', ') + " n'ont pas pu être effacées. La classe n'est pas supprimée : réessaie.");
+          else alert("Impossible de supprimer la classe (" + (e.code || e.message || e) + ").");
+          rafraichirListeClasses();
         }
       }
     };
@@ -3937,6 +3989,11 @@ async function creerNouvelleClasse() {
     document.getElementById('nouvelleClasseNom').value = '';
     document.getElementById('nouvelleClasseAnnee').value = '';
     rafraichirListeClasses();
+    try { await copierReglagesVersNouvelleClasse(code); }
+    catch (e) {
+      console.warn('Copie des réglages vers la nouvelle classe impossible :', e);
+      erreurEl.textContent = "Classe créée, mais tes réglages n'ont pas pu être transmis à ses élèves : ouvre « Réglages du logiciel » et enregistre à nouveau.";
+    }
   } catch (e) {
     console.error('Erreur creerNouvelleClasse:', e);
     erreurEl.textContent = "Impossible de créer la classe (" + (e.code || e.message || e) + ").";
@@ -3966,8 +4023,12 @@ async function rafraichirListeEleves() {
                       <button class="supprimer" title="Retirer l'élève">✕</button>`;
     div.querySelector('.supprimer').onclick = async (ev) => {
       ev.stopPropagation();
-      if (confirm(`Retirer ${e.prenom} de la classe ?`)) {
-        await window.FirebaseApp.supprimerEleveDeLaListe(classeOuverte.id, e.id);
+      if (confirm(`Retirer ${e.prenom} de la classe ?\n\nSa progression et son historique seront supprimés définitivement, et il ne pourra plus se connecter.`)) {
+        try { await retirerEleveComplet(classeOuverte.id, e); }
+        catch (err) {
+          console.error('Erreur retirerEleveComplet:', err);
+          alert("Suppression incomplète (" + (err.code || err.message || err) + "). " + e.prenom + " reste dans la liste : réessaie.");
+        }
         rafraichirListeEleves();
       }
     };
@@ -3995,6 +4056,293 @@ async function ajouterNouvelEleve() {
       ? 'Cet identifiant est déjà pris dans cette classe.'
       : "Impossible d'ajouter cet élève.";
   }
+}
+
+// ================================================================
+// RÉGLAGES ENSEIGNANT (cascade global -> catégorie -> sous-compétence, + temps de référence par palier)
+// ================================================================
+const PARAMS_REGLAGES=[
+  {cle:'seuilProgression', label:'Points pour passer au palier suivant', min:1},
+  {cle:'bonusRapide', label:'Points gagnés : réponse juste et rapide', min:0},
+  {cle:'bonusLent', label:'Points gagnés : réponse juste mais lente', min:0},
+  {cle:'penaliteErreur', label:'Points perdus : erreur ou pas de réponse', min:0},
+  {cle:'ajustementTempsSecondes', label:'Ajustement du temps calculé (secondes, + ou −)', min:null},
+];
+const CAT_REGLAGE={add:'addition',sub:'soustraction',mul:'multiplication',div:'division',mesure:'grandeurs',estimation:'estimation'};
+let reglagesEdition=null, reglagesInstantane='', porteeCourante='global', reglagesEnsCharges=false;
+
+function reglagesFusionnes(saved){
+  const d=MoteurAdaptatif.reglagesParDefaut;
+  const r={global:Object.assign({},d.global), categories:{}, sousCompetences:{}, temps:{}};
+  if(saved){
+    Object.assign(r.global, saved.global||{});
+    Object.keys(d.global).forEach(k=>{ if(typeof r.global[k]!=='number'||!Number.isFinite(r.global[k])) r.global[k]=d.global[k]; });
+    r.categories=saved.categories||{}; r.sousCompetences=saved.sousCompetences||{}; r.temps=saved.temps||{};
+  }
+  return r;
+}
+// Copie sans les niveaux vides (c'est ce qu'on enregistre et ce qu'on compare)
+function reglagesNettoyes(r){
+  const out={global:Object.assign({},r.global), categories:{}, sousCompetences:{}, temps:{}};
+  Object.keys(r.categories).forEach(k=>{ if(Object.keys(r.categories[k]).length) out.categories[k]=Object.assign({},r.categories[k]); });
+  Object.keys(r.sousCompetences).forEach(k=>{ if(Object.keys(r.sousCompetences[k]).length) out.sousCompetences[k]=Object.assign({},r.sousCompetences[k]); });
+  Object.keys(r.temps).forEach(k=>{ if(Object.keys(r.temps[k]).length) out.temps[k]=Object.assign({},r.temps[k]); });
+  return out;
+}
+async function chargerReglagesEnseignant(){
+  const F=window.FirebaseApp;
+  const snap=await F.getDoc(F.doc(F.db,'reglages',F.auth.currentUser.uid));
+  return reglagesFusionnes(snap.exists()?snap.data():null);
+}
+// Pour que les seuils affichés dans la fiche et le tableau suivent les réglages (échec = valeurs par défaut)
+async function chargerReglagesPourAffichage(){
+  if(reglagesEnsCharges)return;
+  try{ reglagesActifs=await chargerReglagesEnseignant(); reglagesEnsCharges=true; }catch(e){ /* valeurs par défaut */ }
+}
+
+async function ouvrirReglages(){
+  const corps=document.getElementById('regCorps');
+  corps.innerHTML='<div class="progres-msg">⏳ Chargement…</div>';
+  nav('EnsReglages','fwd');
+  try{
+    reglagesEdition=await chargerReglagesEnseignant();
+    reglagesInstantane=JSON.stringify(reglagesNettoyes(reglagesEdition));
+    reglagesActifs=JSON.parse(reglagesInstantane); reglagesEnsCharges=true;
+    porteeCourante='global';
+    rendreReglages();
+  }catch(e){
+    console.warn('Lecture des réglages impossible :',e);
+    reglagesEdition=null;
+    corps.innerHTML='';
+    corps.appendChild(messageAvecBouton("⚠️ Impossible de charger tes réglages (problème de connexion). Je ne te laisse pas les modifier pour ne rien écraser par erreur.",'Réessayer',ouvrirReglages));
+  }
+}
+function reglagesModifies(){ return reglagesEdition && JSON.stringify(reglagesNettoyes(reglagesEdition))!==reglagesInstantane; }
+function quitterReglages(){
+  if(reglagesModifies() && !confirm('Des modifications ne sont pas enregistrées. Quitter quand même ?')) return;
+  nav('EnsAdmin','back');
+}
+
+// Objet de réglages correspondant à la portée choisie ('global', 'cat:add', 'sub:doubler')
+function objetPortee(portee,creer){
+  if(portee==='global') return reglagesEdition.global;
+  const [type,id]=portee.split(':');
+  const dict=type==='cat'?reglagesEdition.categories:reglagesEdition.sousCompetences;
+  const cle=type==='cat'?CAT_REGLAGE[id]:id;
+  if(!dict[cle] && creer) dict[cle]={};
+  return dict[cle]||{};
+}
+// Valeur qui serait utilisée si le champ de cette portée était vide
+function valeurParente(portee,cle){
+  const g=reglagesEdition.global[cle];
+  if(portee==='global') return MoteurAdaptatif.reglagesParDefaut.global[cle];
+  const [type,id]=portee.split(':');
+  if(type==='cat') return g;
+  const cat=reglagesEdition.categories[MoteurAdaptatif.CATEGORIE_PAR_SOUS_COMPETENCE[id]];
+  return (cat&&cat[cle]!==undefined)?cat[cle]:g;
+}
+const fmtReg=n=>String(n).replace('.',',');
+const lireNombre=v=>{ v=String(v).trim().replace(',','.'); return v===''?null:Number(v); };
+
+// Recopie les champs affichés dans la copie de travail ; renvoie un message d'erreur ou null
+function lireChampsReglages(){
+  const corps=document.getElementById('regCorps');
+  const portee=porteeCourante;
+  const cible=objetPortee(portee,true);
+  for(const p of PARAMS_REGLAGES){
+    const champ=corps.querySelector('[data-cle="'+p.cle+'"]'); if(!champ)continue;
+    const n=lireNombre(champ.value);
+    if(n===null){
+      if(portee==='global') cible[p.cle]=MoteurAdaptatif.reglagesParDefaut.global[p.cle]; else delete cible[p.cle];
+    }else if(!Number.isFinite(n) || (p.min!==null && n<p.min)){
+      return '« '+p.label+' » : valeur incorrecte'+(p.min!==null?' (au moins '+fmtReg(p.min)+')':'')+'.';
+    }else cible[p.cle]=n;
+  }
+  if(portee.startsWith('sub:')){
+    const id=portee.slice(4);
+    const t=reglagesEdition.temps[id]||{};
+    for(let pal=1;pal<=6;pal++){
+      const champ=corps.querySelector('[data-palier="'+pal+'"]'); if(!champ)continue;
+      const n=lireNombre(champ.value);
+      if(n===null) delete t[pal];
+      else if(!Number.isFinite(n)||n<1) return 'Temps du palier '+pal+' : au moins 1 seconde.';
+      else t[pal]=Math.round(n);
+    }
+    if(Object.keys(t).length) reglagesEdition.temps[id]=t; else delete reglagesEdition.temps[id];
+  }
+  return null;
+}
+function majStatutReglages(msg){
+  const el=document.getElementById('regStatut'); if(!el)return;
+  if(msg){ el.style.color='var(--accent1)'; el.textContent=msg; return; }
+  el.style.color=reglagesModifies()?'var(--accent2)':'var(--muted)';
+  el.textContent=reglagesModifies()?'● Modifications non enregistrées':'Tout est enregistré';
+}
+
+function rendreReglages(){
+  const corps=document.getElementById('regCorps');
+  corps.innerHTML='';
+  const portee=porteeCourante;
+  // --- choix de la portée ---
+  const lab=document.createElement('div'); lab.className='reg-label'; lab.textContent='Je règle…'; corps.appendChild(lab);
+  const sel=document.createElement('select'); sel.className='login-field'; sel.id='regPortee';
+  const o0=document.createElement('option'); o0.value='global'; o0.textContent='Tous les calculs (général)'; sel.appendChild(o0);
+  ORDRE_CATS.forEach(cat=>{
+    const g=document.createElement('optgroup'); g.label=CAT_NAMES[cat];
+    const oc=document.createElement('option'); oc.value='cat:'+cat; oc.textContent='Toute la catégorie : '+CAT_NAMES[cat]; g.appendChild(oc);
+    TYPES[cat].forEach(t=>{ const o=document.createElement('option'); o.value='sub:'+t.id; o.textContent='— '+t.name.replace(/\n/g,' '); g.appendChild(o); });
+    sel.appendChild(g);
+  });
+  sel.value=portee;
+  sel.onchange=()=>{
+    const err=lireChampsReglages();
+    if(err){ sel.value=porteeCourante; majStatutReglages(err); return; }
+    porteeCourante=sel.value; rendreReglages();
+  };
+  corps.appendChild(sel);
+  // --- les 5 paramètres ---
+  const cible=objetPortee(portee,false);
+  const ou=portee==='global'?'':(portee.startsWith('cat:')?' (général)':' (niveau au-dessus)');
+  PARAMS_REGLAGES.forEach(p=>{
+    const l=document.createElement('div'); l.className='reg-label'; l.textContent=p.label; corps.appendChild(l);
+    const inp=document.createElement('input'); inp.type='text'; inp.inputMode='decimal'; inp.className='login-field'; inp.style.marginBottom='4px';
+    inp.dataset.cle=p.cle;
+    const propre=cible[p.cle];
+    if(portee==='global'){ inp.value=fmtReg(reglagesEdition.global[p.cle]); }
+    else{ inp.value=propre!==undefined?fmtReg(propre):''; inp.placeholder='reprend : '+fmtReg(valeurParente(portee,p.cle))+ou; }
+    inp.oninput=()=>{ const e=lireChampsReglages(); majStatutReglages(e); };
+    corps.appendChild(inp);
+  });
+  // --- temps de référence par palier (seulement pour une compétence) ---
+  if(portee.startsWith('sub:')){
+    const id=portee.slice(4);
+    const l=document.createElement('div'); l.className='reg-label'; l.textContent='Temps de référence par palier (secondes)'; corps.appendChild(l);
+    const aide=document.createElement('div'); aide.className='reg-aide';
+    aide.textContent="Une réponse juste donnée en moins de ce temps rapporte les points « rapide ». Le temps calculé automatiquement est indiqué ; écris un nombre pour le remplacer, ou laisse vide pour le garder.";
+    corps.appendChild(aide);
+    const t=reglagesEdition.temps[id]||{};
+    const ajust=MoteurAdaptatif.resoudreReglage(id,'ajustementTempsSecondes',reglagesEdition);
+    for(let pal=1;pal<=6;pal++){
+      const calcule=Math.max(1,MoteurAdaptatif.estimerTempsReference(id,pal)+ajust);
+      const row=document.createElement('div'); row.className='reg-temps-row';
+      const p=document.createElement('span'); p.className='reg-p'; p.textContent='Palier '+pal;
+      const a=document.createElement('span'); a.className='reg-auto'; a.textContent='calculé : '+calcule+' s';
+      const inp=document.createElement('input'); inp.type='text'; inp.inputMode='numeric'; inp.className='login-field'; inp.dataset.palier=pal;
+      inp.value=t[pal]!==undefined?String(t[pal]):''; inp.placeholder=String(calcule);
+      inp.oninput=()=>{ const e=lireChampsReglages(); majStatutReglages(e); };
+      row.appendChild(p); row.appendChild(a); row.appendChild(inp); corps.appendChild(row);
+    }
+  }
+  // --- statut + boutons ---
+  const st=document.createElement('div'); st.className='reg-statut'; st.id='regStatut'; corps.appendChild(st);
+  const b1=document.createElement('button'); b1.className='btn btn-primary'; b1.style.width='100%'; b1.textContent='💾 Enregistrer'; b1.onclick=enregistrerReglages; corps.appendChild(b1);
+  const b2=document.createElement('button'); b2.className='btn btn-secondary'; b2.style.cssText='width:100%;margin-top:10px;'; b2.textContent='↺ Remettre cette partie par défaut'; b2.onclick=remettreParDefautReglages; corps.appendChild(b2);
+  majStatutReglages();
+}
+
+function remettreParDefautReglages(){
+  if(!confirm('Remettre les valeurs par défaut pour cette partie ? (Pense à enregistrer ensuite.)')) return;
+  const portee=porteeCourante;
+  if(portee==='global') reglagesEdition.global=Object.assign({},MoteurAdaptatif.reglagesParDefaut.global);
+  else{
+    const [type,id]=portee.split(':');
+    if(type==='cat') delete reglagesEdition.categories[CAT_REGLAGE[id]];
+    else { delete reglagesEdition.sousCompetences[id]; delete reglagesEdition.temps[id]; }
+  }
+  rendreReglages();
+}
+
+async function enregistrerReglages(){
+  const err=lireChampsReglages();
+  if(err){ majStatutReglages(err); return; }
+  const data=reglagesNettoyes(reglagesEdition);
+  data.maj=new Date();
+  const el=document.getElementById('regStatut'); el.style.color='var(--muted)'; el.textContent='⏳ Enregistrement…';
+  try{
+    const F=window.FirebaseApp;
+    await F.setDoc(F.doc(F.db,'reglages',F.auth.currentUser.uid),data);
+    reglagesInstantane=JSON.stringify(reglagesNettoyes(reglagesEdition));
+    reglagesActifs=JSON.parse(reglagesInstantane); reglagesEnsCharges=true;
+    el.style.color='var(--accent3)'; el.textContent='✅ Réglages enregistrés';
+    await copierReglagesPourEleves();
+  }catch(e){
+    console.warn('Enregistrement des réglages impossible :',e);
+    el.style.color='var(--accent1)'; el.textContent="⚠️ Non enregistré (problème de connexion). Réessaie.";
+  }
+}
+
+// ================================================================
+// SUPPRESSION COMPLÈTE D'UN ÉLÈVE / D'UNE CLASSE
+// Ordre : 1) marquer l'élève "retiré" (il ne peut plus se reconnecter ni écrire)
+//         2) effacer sa progression et son historique
+//         3) retirer sa fiche de la classe
+// Si une étape échoue on s'arrête : la fiche reste dans la liste et on peut réessayer sans rien perdre.
+// (Le compte Firebase Auth, lui, ne peut pas être supprimé depuis le navigateur : il reste, mais est bloqué.)
+// ================================================================
+async function supprimerDonneesEleve(uid){
+  const F=window.FirebaseApp;
+  for(const chemin of [['progressions',uid,'competences'],['seances',uid,'historique']]){
+    const snap=await F.getDocs(F.collection(F.db,...chemin));
+    const ids=[]; snap.forEach(d=>ids.push(d.id));
+    for(let i=0;i<ids.length;i+=20){
+      await Promise.all(ids.slice(i,i+20).map(id=>F.deleteDoc(F.doc(F.db,...chemin,id))));
+    }
+  }
+}
+async function bloquerEtEffacerEleve(classeId,eleve){
+  const F=window.FirebaseApp; const uid=eleve.uid||eleve.id;
+  await F.setDoc(F.doc(F.db,'elevesRetires',uid),{retireLe:new Date(), classeId});
+  await supprimerDonneesEleve(uid);
+}
+async function retirerEleveComplet(classeId,eleve){
+  await bloquerEtEffacerEleve(classeId,eleve);
+  await window.FirebaseApp.supprimerEleveDeLaListe(classeId,eleve.id);
+}
+async function supprimerClasseComplete(classe){
+  const F=window.FirebaseApp;
+  const eleves=await F.listerEleves(classe.id);
+  const echecs=[];
+  for(const e of eleves){
+    try{ await bloquerEtEffacerEleve(classe.id,e); }
+    catch(err){ console.warn('Suppression incomplète pour',e.prenom,err); echecs.push(e.prenom); }
+  }
+  if(echecs.length){ const err=new Error('suppression incomplète'); err.echecs=echecs; throw err; }
+  await F.supprimerClasse(classe.id);   // fiches élèves + classe
+  try{ await F.deleteDoc(F.doc(F.db,'reglagesClasses',codeClasseNettoye(classe.codeClasse))); }
+  catch(err){ console.warn('Copie des réglages de la classe non supprimée :',err); }   // sans conséquence
+}
+
+// ---- Copie des réglages à destination des élèves : reglagesClasses/{codeClasse} ----
+const codeClasseNettoye=c=>String(c).trim().toLowerCase().replace(/[^a-z0-9]/g,'');
+// Écrit la copie pour CHAQUE classe de l'enseignant ; renvoie la liste des noms de classes en échec
+async function publierReglagesPourEleves(data){
+  const F=window.FirebaseApp; const uid=F.auth.currentUser.uid;
+  const classes=await F.listerClasses(uid);
+  const echecs=[];
+  for(const c of classes){
+    try{ await F.setDoc(F.doc(F.db,'reglagesClasses',codeClasseNettoye(c.codeClasse)),Object.assign({},data,{enseignantUid:uid,maj:new Date()})); }
+    catch(e){ console.warn('Copie des réglages impossible pour',c.nom,e); echecs.push(c.nom); }
+  }
+  return echecs;
+}
+async function copierReglagesPourEleves(){
+  const el=document.getElementById('regStatut'); if(!el)return;
+  el.style.color='var(--muted)'; el.textContent='⏳ Transmission à tes élèves…';
+  let echecs;
+  try{ echecs=await publierReglagesPourEleves(JSON.parse(reglagesInstantane)); }
+  catch(e){ console.warn('Transmission des réglages impossible :',e); echecs=null; }
+  if(echecs&&echecs.length===0){ el.style.color='var(--accent3)'; el.textContent='✅ Réglages enregistrés et transmis à tes élèves'; return; }
+  el.style.color='var(--accent1)';
+  el.textContent='⚠️ Enregistrés, mais PAS encore transmis à tes élèves'+(echecs?' (classe : '+echecs.join(', ')+')':'')+'. ';
+  const b=document.createElement('button'); b.className='res-retry'; b.textContent='Réessayer'; b.onclick=copierReglagesPourEleves; el.appendChild(b);
+}
+// Nouvelle classe : lui donner tout de suite les réglages déjà enregistrés (s'il y en a)
+async function copierReglagesVersNouvelleClasse(code){
+  const F=window.FirebaseApp; const uid=F.auth.currentUser.uid;
+  const snap=await F.getDoc(F.doc(F.db,'reglages',uid));
+  if(!snap.exists())return;                      // pas de réglages personnalisés : valeurs par défaut
+  const d=Object.assign({},snap.data()); delete d.maj;
+  await F.setDoc(F.doc(F.db,'reglagesClasses',codeClasseNettoye(code)),Object.assign(d,{enseignantUid:uid,maj:new Date()}));
 }
 
 // ================================================================
@@ -4032,6 +4380,7 @@ async function ouvrirFicheEleve(eleve){
   liste.innerHTML='<div class="progres-msg">⏳ Chargement…</div>';
   nav('EnsEleve','fwd');
   try{
+    await chargerReglagesPourAffichage();
     const m=await lireProgressionsEleve(eleve.uid||eleve.id);
     if(jeton!==jetonFiche)return;
     rendreFicheEleve(m);
@@ -4069,6 +4418,7 @@ async function ouvrirTableauClasse(){
   box.innerHTML='<div class="progres-msg">⏳ Chargement…</div>';
   nav('EnsTableau','fwd');
   try{
+    await chargerReglagesPourAffichage();
     const eleves=(await window.FirebaseApp.listerEleves(classeOuverte.id)).slice().sort((a,b)=>String(a.prenom).localeCompare(String(b.prenom),'fr'));
     if(jeton!==jetonTableau)return;
     if(eleves.length===0){ box.innerHTML='<div class="progres-msg">Aucun élève dans cette classe.</div>'; return; }
@@ -5649,6 +5999,20 @@ async function chargerProgression(subId){
   }
 }
 
+// Réglages de l'enseignant pour la classe de l'élève (copie publique reglagesClasses/{codeClasse}).
+// Pas de document = valeurs par défaut ; une lecture impossible est une ERREUR (le jeu ne démarre pas).
+function codeClasseEleve(){
+  const F=window.FirebaseApp;
+  const email=(eleveConnecte&&eleveConnecte.email)||(F&&F.auth&&F.auth.currentUser&&F.auth.currentUser.email)||'';
+  return (email.split('@')[1]||'').split('.')[0];     // identifiant@CODECLASSE.calculmental.local
+}
+async function chargerReglagesEleve(){
+  const F=window.FirebaseApp; const code=codeClasseEleve();
+  if(!code) throw new Error('code de classe introuvable');
+  const snap=await F.getDoc(F.doc(F.db,'reglagesClasses',code));
+  return reglagesFusionnes(snap.exists()?snap.data():null);
+}
+
 // ---- État de la séance adaptative ----
 let etatProg=null, progUid=null, etatDebut=null;
 let partieActive=false;      // faux dès que la partie est finie ou quittée (ignore les minuteries en attente)
@@ -5738,10 +6102,16 @@ async function startGame(){
   if(!selCat||!selTypeId){alert('Choisis une opération et un type !');nav(1,'back');return;}
   const btn=document.getElementById('startBtn');
   btn.disabled=true; btn.textContent='Chargement…';
-  const p=await chargerProgression(selTypeId);
+  const uidEleve=window.FirebaseApp.auth.currentUser&&window.FirebaseApp.auth.currentUser.uid;
+  const [p,rg,ac]=await Promise.all([
+    chargerProgression(selTypeId),
+    chargerReglagesEleve().then(r=>({reglages:r}),e=>{console.warn('Lecture des réglages impossible :',e);return {erreur:true};}),
+    uidEleve?eleveEstRetire(uidEleve).then(r=>({retire:r}),e=>{console.warn('Vérification du compte impossible :',e);return {erreur:true};}):Promise.resolve({})
+  ]);
   btn.disabled=false; btn.textContent='▶ Commencer !';
-  if(p.erreur){
-    afficherDialogue({icone:'📡', titre:'Connexion impossible', texte:p.messageErreur, couleur:'var(--accent2)',
+  if(ac.retire){ await refuserEleveRetire(); return; }
+  if(p.erreur||rg.erreur||ac.erreur){
+    afficherDialogue({icone:'📡', titre:'Connexion impossible', texte:p.erreur?p.messageErreur:(rg.erreur?"Impossible de charger les réglages de ta classe. Vérifie la connexion internet, puis réessaie.":"Impossible de vérifier ton compte. Vérifie la connexion internet, puis réessaie."), couleur:'var(--accent2)',
       boutons:[
         {label:'Retour', action:(fermer)=>fermer()},
         {label:'Réessayer', primaire:true, action:(fermer)=>{fermer();startGame();}}
@@ -5749,7 +6119,7 @@ async function startGame(){
     return;
   }
   etatProg=p.etat; progUid=p.uid; etatDebut={palier:p.etat.palier, compteur:p.etat.compteur};
-  reglagesActifs=MoteurAdaptatif.reglagesParDefaut;
+  reglagesActifs=rg.reglages;
   seanceId=Date.now().toString(36)+Math.random().toString(36).slice(2,8); seanceDebut=new Date();
   sauvegardeProgOk=false; sauvegardeHistOk=false; histDejaTentee=false; sauvegardeEnCours=false;
   sessionLog=[]; seenKeys=new Set(); questions=[];
