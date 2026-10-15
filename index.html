@@ -340,6 +340,22 @@ body {
 .admin-empty { color: var(--muted); text-align: center; padding: 20px 0; font-size: 0.9rem; }
 .btn-secondary:hover { color: var(--text); border-color: var(--muted); }
 
+/* ========== ADMINISTRATION ========== */
+.admin-ens { cursor: default; flex-wrap: wrap; gap: 8px; }
+.admin-ens:hover { transform: none; background: var(--card); }
+.admin-ens .corps { min-width: 0; flex: 1 1 160px; }
+.admin-ens .actions { display: flex; gap: 4px; }
+.admin-ens .actions button { background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 4px 8px; color: var(--muted); }
+.admin-ens .actions button.supprimer { color: var(--accent1); font-weight: 800; }
+.admin-ens .mdp { font-family: monospace; font-size: 0.95rem; color: var(--text); letter-spacing: 1px; }
+.admin-ens .voir { background: none; border: none; cursor: pointer; font-size: 0.95rem; padding: 0 4px; }
+.admin-ens .alerte { color: var(--accent2); font-size: 0.8rem; font-weight: 700; margin-top: 4px; }
+.admin-edition { flex: 1 0 100%; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.admin-edition input { flex: 1 1 110px; margin-bottom: 0; padding: 10px 14px; }
+.admin-edition button { padding: 10px 14px; }
+.admin-statut { text-align: center; font-size: 0.88rem; font-weight: 700; min-height: 1.2em; margin: 8px 0; color: var(--muted); }
+.login-lien { background: none; border: none; color: var(--accent4); font-family: 'Nunito', sans-serif; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: underline; margin-top: 10px; width: 100%; }
+
 /* ========== GAME SCREEN ========== */
 .game-header {
   display: flex;
@@ -705,11 +721,113 @@ body.cat-proport { --clr-active: #0652dd; }
      (SDK chargé depuis le CDN, pas d'installation npm : compatible
      GitHub Pages tel quel, aucune étape de build nécessaire)
 ===================================================== -->
+<script>
+// ============================================================================
+// FONCTIONS PURES POUR LES COMPTES (identifiants, e-mail technique, mots de passe)
+// Aucune dépendance à Firebase ni au DOM : testables sous node.
+// ============================================================================
+
+// Tous les comptes enseignants et élèves partagent le même domaine technique :
+// l'identifiant est donc unique dans tout le projet.
+const DOMAINE_COMPTES = 'calculmental.local';
+
+// Limite en OCTETS UTF-8 (un accent compte pour 2). 30 octets => 60 caractères hexadécimaux,
+// sous la limite de 64 caractères d'un e-mail avant le @.
+const IDENTIFIANT_MAX_OCTETS = 30;
+
+// Lettres des mots de passe générés : A-Z sans I ni O (24 lettres).
+const LETTRES_MOT_DE_PASSE = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+
+// Normalise un identifiant : Unicode NFC, caractères invisibles retirés, espaces multiples
+// réduits à un seul, espaces de début et de fin supprimés. La casse, les accents, les
+// espaces internes et les tirets sont conservés.
+function normaliserIdentifiant(brut){
+  return String(brut == null ? '' : brut)
+    .normalize('NFC')
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function octetsUtf8(texte){ return new TextEncoder().encode(texte); }
+
+// Vérifie un identifiant à la création d'un compte.
+// Retourne { ok:true, identifiant } ou { ok:false, erreur }.
+function verifierIdentifiant(brut){
+  const id = normaliserIdentifiant(brut);
+  if(!id) return { ok:false, erreur:'Écris un identifiant.' };
+  if(id.indexOf('@') !== -1) return { ok:false, erreur:"Le signe @ n'est pas autorisé dans un identifiant." };
+  if(/[\u0000-\u001F\u007F]/.test(id)) return { ok:false, erreur:"L'identifiant contient un caractère non autorisé." };
+  if(octetsUtf8(id).length > IDENTIFIANT_MAX_OCTETS) return { ok:false, erreur:'Identifiant trop long (environ 30 lettres au maximum, moins avec des accents).' };
+  return { ok:true, identifiant:id };
+}
+
+// Texte -> hexadécimal minuscule (de l'UTF-8). « Léa » et « léa » donnent deux résultats différents.
+function versHex(texte){
+  return Array.from(octetsUtf8(texte)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Identifiant (déjà normalisé) -> e-mail technique du compte Firebase Auth.
+function emailTechnique(identifiantNormalise){
+  return versHex(identifiantNormalise) + '@' + DOMAINE_COMPTES;
+}
+
+// Ce que l'utilisateur tape dans le champ « identifiant » de la page de connexion -> e-mail Auth.
+// Un texte contenant @ est une vraie adresse (admin) : utilisé tel quel. Sinon : e-mail technique.
+// Retourne null si le champ est vide.
+function emailDeConnexion(saisie){
+  const brut = String(saisie == null ? '' : saisie).trim();
+  if(!brut) return null;
+  if(brut.indexOf('@') !== -1) return brut;
+  const id = normaliserIdentifiant(brut);
+  return id ? emailTechnique(id) : null;
+}
+
+// Mot de passe saisi -> valeur envoyée à Firebase : majuscules, sans espaces autour.
+// (Pour une vraie adresse e-mail, le mot de passe est envoyé tel quel : voir motDePasseDeConnexion.)
+function normaliserMotDePasse(saisie){
+  return String(saisie == null ? '' : saisie).trim().toUpperCase();
+}
+
+// Format attendu : 2 chiffres, 2 lettres, 2 chiffres (ex. 45FG32).
+function motDePasseValide(saisie){
+  return /^\d{2}[A-Z]{2}\d{2}$/.test(normaliserMotDePasse(saisie));
+}
+
+// Mot de passe à envoyer pour la connexion : tel quel pour une vraie adresse e-mail (admin),
+// normalisé en majuscules pour les identifiants élèves/enseignants.
+function motDePasseDeConnexion(saisieIdentifiant, saisieMotDePasse){
+  const id = String(saisieIdentifiant == null ? '' : saisieIdentifiant);
+  return id.indexOf('@') !== -1 ? String(saisieMotDePasse == null ? '' : saisieMotDePasse) : normaliserMotDePasse(saisieMotDePasse);
+}
+
+// Entier aléatoire uniforme dans [0, n[ (tirage avec rejet, sans biais de modulo).
+function entierAleatoire(n){
+  const limite = Math.floor(0x100000000 / n) * n;
+  const tampon = new Uint32Array(1);
+  do { crypto.getRandomValues(tampon); } while(tampon[0] >= limite);
+  return tampon[0] % n;
+}
+
+// Génère un mot de passe : 2 chiffres + 2 lettres (sans I ni O) + 2 chiffres, ex. « 45FG32 ».
+function genererMotDePasse(){
+  const chiffre = () => String(entierAleatoire(10));
+  const lettre = () => LETTRES_MOT_DE_PASSE[entierAleatoire(LETTRES_MOT_DE_PASSE.length)];
+  return chiffre() + chiffre() + lettre() + lettre() + chiffre() + chiffre();
+}
+
+if(typeof module !== 'undefined' && module.exports){
+  module.exports = { DOMAINE_COMPTES, IDENTIFIANT_MAX_OCTETS, LETTRES_MOT_DE_PASSE,
+    normaliserIdentifiant, verifierIdentifiant, versHex, emailTechnique, emailDeConnexion,
+    normaliserMotDePasse, motDePasseValide, motDePasseDeConnexion, entierAleatoire, genererMotDePasse };
+}
+</script>
+
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
   import {
     getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-    signOut, onAuthStateChanged
+    signOut, onAuthStateChanged, updatePassword, deleteUser, sendPasswordResetEmail
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
     getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
@@ -729,27 +847,21 @@ body.cat-proport { --clr-active: #0652dd; }
   const auth = getAuth(app);
   const db = getFirestore(app);
 
-  // Seconde instance Firebase, uniquement pour créer des comptes élèves
-  // depuis l'interface admin SANS déconnecter l'enseignant : créer un
-  // utilisateur avec l'instance "auth" principale connecterait automati-
-  // quement ce nouvel utilisateur à la place de l'enseignant. En créant
-  // le compte élève sur une instance séparée (secondaryAuth), la session
-  // de l'enseignant sur "auth" n'est jamais affectée.
+  // Seconde instance Firebase : sert à créer, ouvrir ou supprimer les comptes d'AUTRES personnes
+  // (enseignants créés par l'admin, élèves créés par l'enseignant) SANS déconnecter la personne
+  // connectée sur l'instance principale "auth".
   const secondaryApp = initializeApp(firebaseConfig, 'secondaire');
   const secondaryAuth = getAuth(secondaryApp);
 
-  // Un identifiant élève n'est pas une vraie adresse e-mail : Firebase Auth
-  // exige pourtant un format e-mail pour la connexion par mot de passe.
-  // On fabrique donc une adresse interne, jamais envoyée nulle part,
-  // à partir du code de la classe + de l'identifiant choisi par l'élève.
-  function fabriquerEmailEleve(codeClasse, identifiant) {
-    const nettoyer = s => s.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    return `${nettoyer(identifiant)}@${nettoyer(codeClasse)}.calculmental.local`;
-  }
-
-  async function connecterEleve(codeClasse, identifiant, motDePasse) {
-    const email = fabriquerEmailEleve(codeClasse, identifiant);
-    const credentiel = await signInWithEmailAndPassword(auth, email, motDePasse);
+  // ------------------------------------------------------------------
+  // CONNEXION UNIQUE
+  // L'identifiant tapé (prénom, nom d'enseignant ou vraie adresse e-mail de l'admin) est converti
+  // en adresse Firebase par emailDeConnexion() (fonctions pures, script précédent).
+  // ------------------------------------------------------------------
+  async function connecter(saisieIdentifiant, saisieMotDePasse) {
+    const email = emailDeConnexion(saisieIdentifiant);
+    if (!email) { const e = new Error('identifiant vide'); e.code = 'identifiant-vide'; throw e; }
+    const credentiel = await signInWithEmailAndPassword(auth, email, motDePasseDeConnexion(saisieIdentifiant, saisieMotDePasse));
     return credentiel.user;
   }
 
@@ -757,30 +869,134 @@ body.cat-proport { --clr-active: #0652dd; }
     await signOut(auth);
   }
 
-  // --- Enseignant : vrai e-mail, compte classique ---
-  async function inscrireEnseignant(email, motDePasse) {
-    const credentiel = await createUserWithEmailAndPassword(auth, email, motDePasse);
-    await setDoc(doc(db, 'enseignants', credentiel.user.uid), {
-      email, creeLe: new Date().toISOString(),
-    });
-    return credentiel.user;
+  // Mot de passe oublié : réservé à l'admin (seul compte avec une vraie adresse e-mail).
+  async function envoyerReinitialisationMotDePasse(email) {
+    await sendPasswordResetEmail(auth, String(email).trim());
   }
 
-  async function connecterEnseignant(email, motDePasse) {
-    const credentiel = await signInWithEmailAndPassword(auth, email, motDePasse);
-    return credentiel.user;
+  // Rôle d'un compte connecté : 'admin' | 'enseignant' | 'eleve'.
+  // (admins/{uid} est créé à la main dans la console ; enseignants/{uid} uniquement par l'admin.)
+  async function determinerRole(uid) {
+    const [a, e] = await Promise.all([ getDoc(doc(db, 'admins', uid)), getDoc(doc(db, 'enseignants', uid)) ]);
+    if (a.exists()) return 'admin';
+    if (e.exists()) return 'enseignant';
+    return 'eleve';
   }
 
-  async function estCompteEnseignant(uid) {
-    const snap = await getDoc(doc(db, 'enseignants', uid));
-    return snap.exists();
+  // ------------------------------------------------------------------
+  // COMPTES : création, changement de mot de passe, suppression
+  // Chaque compte a une copie de son mot de passe dans motsDePasse/{uid} :
+  //   { role, identifiant, mdp, mdpEnAttente, classeId?, enseignantUid?, creeLe }
+  // Elle permet d'ouvrir une session sur le compte (instance secondaire) pour changer son mot de passe
+  // ou le supprimer. Pendant un changement, le nouveau mot de passe est d'abord noté dans mdpEnAttente :
+  // si une étape échoue, la session suivante essaie les deux valeurs.
+  // ------------------------------------------------------------------
+  function erreurCompte(code, message) { const e = new Error(message || code); e.code = code; return e; }
+
+  // Crée le compte Auth (instance secondaire). Retourne l'uid. Erreur 'identifiant-pris' si déjà utilisé.
+  async function creerCompteAuth(identifiantNormalise, motDePasseNormalise) {
+    const email = emailTechnique(identifiantNormalise);
+    try {
+      const credentiel = await createUserWithEmailAndPassword(secondaryAuth, email, motDePasseNormalise);
+      return credentiel.user;
+    } catch (e) {
+      if (e && e.code === 'auth/email-already-in-use') throw erreurCompte('identifiant-pris', 'Identifiant déjà pris');
+      throw e;
+    }
   }
 
-  // --- Gestion des classes ---
-  async function creerClasse(enseignantUid, nomClasse, annee, codeClasse) {
+  // Ouvre une session sur l'instance secondaire en essayant chaque mot de passe candidat.
+  async function ouvrirSessionSecondaire(identifiant, candidats) {
+    const email = emailTechnique(identifiant);
+    let derniere = null;
+    for (const mdp of candidats) {
+      try { return (await signInWithEmailAndPassword(secondaryAuth, email, mdp)).user; }
+      catch (e) { derniere = e; if (e && (e.code === 'auth/too-many-requests' || e.code === 'auth/network-request-failed')) throw e; }
+    }
+    throw derniere || erreurCompte('session-impossible');
+  }
+
+  async function lireCopieMotDePasse(uid) {
+    const snap = await getDoc(doc(db, 'motsDePasse', uid));
+    return snap.exists() ? snap.data() : null;
+  }
+
+  // Changement du mot de passe d'un compte (enseignant : par l'admin ; élève : par son enseignant).
+  async function changerMotDePasse(uid, nouveauMotDePasse) {
+    if (!motDePasseValide(nouveauMotDePasse)) throw erreurCompte('mot-de-passe-invalide', 'Format attendu : 2 chiffres, 2 lettres, 2 chiffres (ex. 45FG32).');
+    const nouveau = normaliserMotDePasse(nouveauMotDePasse);
+    const copie = await lireCopieMotDePasse(uid);
+    if (!copie) throw erreurCompte('copie-introuvable', 'Mot de passe de ce compte introuvable.');
+    const candidats = [copie.mdp, copie.mdpEnAttente].filter((m, i, t) => m && t.indexOf(m) === i);
+    let utilisateur;
+    try { utilisateur = await ouvrirSessionSecondaire(copie.identifiant, candidats); }
+    catch (e) { if (e && (e.code === 'auth/too-many-requests' || e.code === 'auth/network-request-failed')) throw e; throw erreurCompte('session-impossible', 'Connexion au compte impossible.'); }
+    try {
+      await updateDoc(doc(db, 'motsDePasse', uid), { mdpEnAttente: nouveau });
+      await updatePassword(utilisateur, nouveau);
+      await updateDoc(doc(db, 'motsDePasse', uid), { mdp: nouveau, mdpEnAttente: null });
+    } finally {
+      try { await signOut(secondaryAuth); } catch (e) { /* sans conséquence */ }
+    }
+  }
+
+  // Supprime le compte Auth. Retourne true si supprimé, false si impossible (ancien compte sans copie,
+  // mot de passe introuvable...). N'échoue jamais pour cette raison : l'appelant signale les comptes restants.
+  async function supprimerCompteAuth(uid) {
+    let copie;
+    try { copie = await lireCopieMotDePasse(uid); } catch (e) { return false; }
+    if (!copie) return false;
+    const candidats = [copie.mdp, copie.mdpEnAttente].filter((m, i, t) => m && t.indexOf(m) === i);
+    try {
+      const utilisateur = await ouvrirSessionSecondaire(copie.identifiant, candidats);
+      await deleteUser(utilisateur);
+      return true;
+    } catch (e) {
+      console.warn('Compte Auth non supprimé :', copie.identifiant, e);
+      return false;
+    } finally {
+      try { await signOut(secondaryAuth); } catch (e) { /* sans conséquence */ }
+    }
+  }
+
+  // --- Enseignants (gérés par l'admin) ---
+  async function creerEnseignant(identifiantBrut, motDePasseSaisi) {
+    const v = verifierIdentifiant(identifiantBrut);
+    if (!v.ok) throw erreurCompte('identifiant-invalide', v.erreur);
+    if (!motDePasseValide(motDePasseSaisi)) throw erreurCompte('mot-de-passe-invalide', 'Format attendu : 2 chiffres, 2 lettres, 2 chiffres (ex. 45FG32).');
+    const mdp = normaliserMotDePasse(motDePasseSaisi);
+    const utilisateur = await creerCompteAuth(v.identifiant, mdp);
+    const uid = utilisateur.uid;
+    try {
+      const maintenant = new Date().toISOString();
+      await setDoc(doc(db, 'enseignants', uid), { identifiant: v.identifiant, creeLe: maintenant });
+      await setDoc(doc(db, 'motsDePasse', uid), { role: 'enseignant', identifiant: v.identifiant, mdp, mdpEnAttente: null, creeLe: maintenant });
+    } catch (e) {
+      // Retour en arrière : on supprime ce qui vient d'être créé pour ne pas bloquer l'identifiant.
+      try { await deleteDoc(doc(db, 'motsDePasse', uid)); } catch (x) { /* ignoré */ }
+      try { await deleteDoc(doc(db, 'enseignants', uid)); } catch (x) { /* ignoré */ }
+      try { await deleteUser(utilisateur); } catch (x) { console.warn('Compte Auth orphelin :', v.identifiant, x); }
+      throw e;
+    } finally {
+      try { await signOut(secondaryAuth); } catch (e) { /* sans conséquence */ }
+    }
+    return { uid, identifiant: v.identifiant, motDePasse: mdp };
+  }
+
+  async function listerEnseignants() {
+    const snap = await getDocs(collection(db, 'enseignants'));
+    const liste = await Promise.all(snap.docs.map(async d => {
+      const copie = await lireCopieMotDePasse(d.id).catch(() => null);
+      return { uid: d.id, identifiant: d.data().identifiant, creeLe: d.data().creeLe,
+               mdp: copie ? copie.mdp : null, changementIncomplet: !!(copie && copie.mdpEnAttente) };
+    }));
+    return liste.sort((a, b) => String(a.identifiant).localeCompare(String(b.identifiant), 'fr'));
+  }
+
+  // --- Classes et élèves : listes ---
+  async function creerClasse(enseignantUid, nomClasse, annee) {
     const ref = await addDoc(collection(db, 'classes'), {
-      nom: nomClasse, annee, codeClasse: codeClasse.trim().toLowerCase(),
-      enseignantUid, creeLe: new Date().toISOString(),
+      nom: nomClasse, annee, enseignantUid, creeLe: new Date().toISOString(),
     });
     return ref.id;
   }
@@ -791,68 +1007,90 @@ body.cat-proport { --clr-active: #0652dd; }
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   }
 
-  // --- Gestion des élèves au sein d'une classe ---
-  // Crée le compte Firebase Auth (via la seconde instance, cf. plus haut)
-  // PUIS la fiche Firestore de l'élève dans la classe.
-  async function ajouterEleve(classeId, codeClasse, prenom, identifiant, motDePasse) {
-    const email = fabriquerEmailEleve(codeClasse, identifiant);
-    const credentiel = await createUserWithEmailAndPassword(secondaryAuth, email, motDePasse);
-    const uid = credentiel.user.uid;
-    await signOut(secondaryAuth); // nettoyage : referme la session sur l'instance secondaire
-    await setDoc(doc(db, 'classes', classeId, 'eleves', uid), {
-      prenom, identifiant: identifiant.trim().toLowerCase(), uid,
-      creeLe: new Date().toISOString(),
-    });
-    return uid;
-  }
-
   async function listerEleves(classeId) {
     const snap = await getDocs(collection(db, 'classes', classeId, 'eleves'));
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   }
 
-  async function supprimerEleveDeLaListe(classeId, eleveId) {
-    // Retire la fiche élève de la classe. Ça ne supprime PAS le compte
-    // Firebase Auth correspondant (ça demanderait les droits admin,
-    // cf. remarque sur les Cloud Functions) : l'élève ne pourra plus être
-    // géré depuis l'admin, mais techniquement son compte reste créé.
-    await deleteDoc(doc(db, 'classes', classeId, 'eleves', eleveId));
+  // --- Suppressions complètes ---
+  async function effacerCollection(...chemin) {
+    const snap = await getDocs(collection(db, ...chemin));
+    const ids = []; snap.forEach(d => ids.push(d.id));
+    for (let i = 0; i < ids.length; i += 20) {
+      await Promise.all(ids.slice(i, i + 20).map(id => deleteDoc(doc(db, ...chemin, id))));
+    }
   }
 
-  async function supprimerClasse(classeId) {
-    // Supprimer un document Firestore ne supprime pas automatiquement ses
-    // sous-collections : on efface donc d'abord toutes les fiches élèves
-    // de la classe, puis la classe elle-même. (Les comptes Firebase Auth
-    // des élèves, eux, restent créés — même remarque que pour un élève
-    // retiré individuellement.)
+  // Ordre : 1) marqueur « retiré » (bloque connexion et écritures)  2) progression + historique
+  //         3) compte Auth  4) copie du mot de passe, marqueur (si le compte Auth est supprimé), profil
+  //         5) fiche dans la classe.
+  // Retourne { authSupprime }. Une erreur Firestore arrête tout (on peut réessayer sans rien perdre).
+  async function supprimerEleveComplet(classeId, eleveUid) {
+    await setDoc(doc(db, 'elevesRetires', eleveUid), { retireLe: new Date(), classeId });
+    await effacerCollection('progressions', eleveUid, 'competences');
+    await effacerCollection('seances', eleveUid, 'historique');
+    const authSupprime = await supprimerCompteAuth(eleveUid);
+    await deleteDoc(doc(db, 'motsDePasse', eleveUid));
+    if (authSupprime) await deleteDoc(doc(db, 'elevesRetires', eleveUid));
+    await deleteDoc(doc(db, 'profilsEleves', eleveUid));
+    await deleteDoc(doc(db, 'classes', classeId, 'eleves', eleveUid));
+    return { authSupprime };
+  }
+
+  // Supprime tous les élèves d'une classe, puis ses réglages, puis la classe.
+  // rapport : { comptesRestants: [identifiants dont le compte Auth n'a pas pu être supprimé] }
+  async function supprimerClasseComplete(classeId, rapport, surProgres) {
     const eleves = await listerEleves(classeId);
     for (const e of eleves) {
-      await deleteDoc(doc(db, 'classes', classeId, 'eleves', e.id));
+      if (surProgres) surProgres('Suppression de ' + (e.prenom || e.identifiant || e.id) + '…');
+      const r = await supprimerEleveComplet(classeId, e.uid || e.id);
+      if (!r.authSupprime && rapport) rapport.comptesRestants.push(e.identifiant || e.prenom || e.id);
     }
+    try { await deleteDoc(doc(db, 'reglagesClasses', classeId)); } catch (e) { console.warn('Réglages de la classe non supprimés :', e); }
     await deleteDoc(doc(db, 'classes', classeId));
+  }
+
+  // Suppression d'un enseignant (par l'admin) avec toutes ses classes et tous ses élèves.
+  async function supprimerEnseignantComplet(enseignantUid, surProgres) {
+    const rapport = { comptesRestants: [] };
+    const classes = await listerClasses(enseignantUid);
+    for (const c of classes) {
+      if (surProgres) surProgres('Classe ' + (c.nom || c.id) + '…');
+      await supprimerClasseComplete(c.id, rapport, surProgres);
+    }
+    try { await deleteDoc(doc(db, 'reglages', enseignantUid)); } catch (e) { console.warn('Réglages non supprimés :', e); }
+    const copie = await lireCopieMotDePasse(enseignantUid).catch(() => null);
+    const authSupprime = await supprimerCompteAuth(enseignantUid);
+    if (!authSupprime && copie) rapport.comptesRestants.push(copie.identifiant);
+    await deleteDoc(doc(db, 'motsDePasse', enseignantUid));
+    await deleteDoc(doc(db, 'enseignants', enseignantUid));
+    return rapport;
   }
 
   // Exposés pour le reste du programme (script classique, non-module)
   window.FirebaseApp = {
     auth, db, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs,
-    fabriquerEmailEleve, connecterEleve, deconnecter,
-    inscrireEnseignant, connecterEnseignant, estCompteEnseignant,
-    creerClasse, listerClasses, supprimerClasse,
-    ajouterEleve, listerEleves, supprimerEleveDeLaListe,
+    connecter, deconnecter, envoyerReinitialisationMotDePasse, determinerRole,
+    creerEnseignant, listerEnseignants, changerMotDePasse,
+    creerClasse, listerClasses, listerEleves,
+    supprimerEleveComplet, supprimerClasseComplete, supprimerEnseignantComplet,
   };
 
-  // Si une session est déjà active (rechargement de page), on redirige
-  // directement vers l'écran qui va bien (admin si enseignant, jeu si élève)
-  // sans repasser par l'écran de connexion.
-  onAuthStateChanged(auth, async (user) => {
-    if (!user) return;
-    const estEns = await estCompteEnseignant(user.uid);
-    if (estEns && typeof window.onEnseignantConnecte === 'function') {
-      window.onEnseignantConnecte(user);
-    } else if (!estEns && typeof window.onEleveConnecte === 'function') {
-      window.onEleveConnecte(user);
+  // Session déjà active (rechargement de page) ou connexion réussie : on ouvre l'écran du rôle.
+  // Si le rôle ne peut pas être lu (réseau, règles) : message « Connexion impossible » + Réessayer.
+  async function routerSelonRole(user) {
+    let role;
+    try { role = await determinerRole(user.uid); }
+    catch (e) {
+      console.warn('Rôle illisible :', e);
+      if (typeof window.onConnexionImpossible === 'function') window.onConnexionImpossible(() => routerSelonRole(user));
+      return;
     }
-  });
+    if (role === 'admin' && typeof window.onAdminConnecte === 'function') window.onAdminConnecte(user);
+    else if (role === 'enseignant' && typeof window.onEnseignantConnecte === 'function') window.onEnseignantConnecte(user);
+    else if (role === 'eleve' && typeof window.onEleveConnecte === 'function') window.onEleveConnecte(user);
+  }
+  onAuthStateChanged(auth, (user) => { if (user) routerSelonRole(user); });
 </script>
 
 <!-- ====================================================
@@ -3443,48 +3681,40 @@ window.MoteurAdaptatif = {
 <div class="feedback-pop" id="feedbackPop"></div>
 
 <!-- ====================================================
-     ÉCRAN 0 : CONNEXION ÉLÈVE
+     ÉCRAN 0 : CONNEXION UNIQUE (élèves, enseignants, administrateur)
+     Le type de compte est reconnu après la connexion.
+     Un identifiant contenant @ est une vraie adresse e-mail (administrateur).
 ===================================================== -->
 <div class="screen active" id="s0">
   <div class="app-title" style="margin-top:64px;">🧮 Calcul Mental</div>
   <div class="login-box" style="margin-top:40px;">
-    <input type="text" class="login-field" id="loginCodeClasse" placeholder="Code de la classe" autocomplete="off">
-    <input type="text" class="login-field" id="loginIdentifiant" placeholder="Ton identifiant" autocomplete="off">
-    <input type="password" class="login-field" id="loginMotDePasse" placeholder="Ton mot de passe" autocomplete="off">
+    <input type="text" class="login-field" id="loginIdentifiant" placeholder="Ton identifiant" autocomplete="off" autocorrect="off" spellcheck="false" oninput="majLienOubli()" onkeydown="if(event.key==='Enter')document.getElementById('loginMotDePasse').focus()">
+    <input type="password" class="login-field" id="loginMotDePasse" placeholder="Ton mot de passe" autocomplete="off" onkeydown="if(event.key==='Enter')tenterConnexion()">
     <div class="login-error" id="loginErreur"></div>
     <button class="btn btn-primary" onclick="tenterConnexion()">Se connecter</button>
-    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="nav('EnsLogin')">Je suis l'enseignant</button>
+    <button class="login-lien" id="loginOubli" style="display:none;" onclick="envoyerReinitAdmin()">Mot de passe oublié (administrateur)</button>
   </div>
 </div>
 
 <!-- ====================================================
-     ÉCRAN ENSEIGNANT : CONNEXION
+     ÉCRAN ADMINISTRATEUR : GESTION DES COMPTES ENSEIGNANTS
 ===================================================== -->
-<div class="screen" id="sEnsLogin">
-  <div class="app-title" style="margin-top:64px;">👩‍🏫 Espace enseignant</div>
-  <div class="login-box" style="margin-top:40px;">
-    <input type="email" class="login-field" id="ensEmail" placeholder="Adresse e-mail" autocomplete="off">
-    <input type="password" class="login-field" id="ensMotDePasse" placeholder="Mot de passe" autocomplete="off">
-    <div class="login-error" id="ensErreur"></div>
-    <button class="btn btn-primary" onclick="tenterConnexionEnseignant()">Se connecter</button>
-    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="nav('EnsInscription')">Je n'ai pas encore de compte</button>
-    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="nav(0)">← Retour</button>
-  </div>
-</div>
-
-<!-- ====================================================
-     ÉCRAN ENSEIGNANT : CRÉATION DE COMPTE
-     (champs totalement séparés de l'écran de connexion,
-     pour éviter toute confusion entre les deux actions)
-===================================================== -->
-<div class="screen" id="sEnsInscription">
-  <div class="app-title" style="margin-top:64px;">Créer un compte enseignant</div>
-  <div class="login-box" style="margin-top:40px;">
-    <input type="email" class="login-field" id="ensInscriptionEmail" placeholder="Adresse e-mail" autocomplete="off">
-    <input type="password" class="login-field" id="ensInscriptionMotDePasse" placeholder="Choisis un mot de passe" autocomplete="off">
-    <div class="login-error" id="ensInscriptionErreur"></div>
-    <button class="btn btn-primary" onclick="tenterInscriptionEnseignant()">Confirmer la création du compte</button>
-    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="nav('EnsLogin')">← Retour à la connexion</button>
+<div class="screen" id="sAdmin">
+  <div class="app-title" style="margin-top:40px;">🛠️ Administration</div>
+  <div class="login-box" style="margin-top:24px;max-width:480px;">
+    <div style="font-weight:800;margin-bottom:10px;">Enseignants</div>
+    <div id="listeEnseignants"></div>
+    <div class="admin-statut" id="adminStatut"></div>
+    <div style="margin-top:14px;font-weight:800;margin-bottom:10px;">Créer un enseignant</div>
+    <input type="text" class="login-field" id="adminNouvelId" placeholder="Identifiant (ex : Dupont)" autocomplete="off" autocorrect="off" spellcheck="false">
+    <div style="display:flex;gap:8px;align-items:flex-start;">
+      <input type="text" class="login-field" id="adminNouveauMdp" placeholder="Mot de passe (ex : 45FG32)" autocomplete="off" autocorrect="off" spellcheck="false" style="font-family:monospace;letter-spacing:1px;">
+      <button class="btn btn-secondary" style="padding:13px 16px;" title="Générer un autre mot de passe" onclick="adminRegenererMotDePasse()">🎲</button>
+    </div>
+    <div class="login-error" id="adminErreur"></div>
+    <div class="admin-statut" id="adminSucces" style="color:var(--accent3);"></div>
+    <button class="btn btn-primary" onclick="adminCreerEnseignant()">+ Créer l'enseignant</button>
+    <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="deconnecterAdmin()">Déconnexion</button>
   </div>
 </div>
 
@@ -3812,27 +4042,59 @@ window.MoteurAdaptatif = {
 // ================================================================
 let eleveConnecte = null; // { uid, identifiant, codeClasse } une fois connecté
 
+function messageErreurConnexion(e) {
+  const c = e && e.code;
+  if (c === 'auth/too-many-requests') return "Trop d'essais. Attends un peu, puis réessaie.";
+  if (c === 'auth/network-request-failed') return "Connexion impossible. Vérifie internet, puis réessaie.";
+  return "Identifiant ou mot de passe incorrect.";
+}
+
 async function tenterConnexion() {
-  const codeClasse = document.getElementById('loginCodeClasse').value;
   const identifiant = document.getElementById('loginIdentifiant').value;
   const motDePasse = document.getElementById('loginMotDePasse').value;
   const erreurEl = document.getElementById('loginErreur');
   erreurEl.textContent = '';
 
-  if (!codeClasse.trim() || !identifiant.trim() || !motDePasse) {
-    erreurEl.textContent = 'Remplis les 3 champs pour te connecter.';
+  if (!identifiant.trim() || !motDePasse) {
+    erreurEl.textContent = 'Remplis les 2 champs pour te connecter.';
     return;
   }
 
   try {
-    const user = await window.FirebaseApp.connecterEleve(codeClasse, identifiant, motDePasse);
-    // onAuthStateChanged (dans le script Firebase) appelle automatiquement
-    // window.onEleveConnecte(user) à ce moment-là, donc on ne fait rien de
-    // plus ici : voir cette fonction plus bas pour la suite.
+    await window.FirebaseApp.connecter(identifiant, motDePasse);
+    // onAuthStateChanged (script Firebase) reconnaît le type de compte (admin, enseignant ou élève)
+    // et appelle window.onAdminConnecte / onEnseignantConnecte / onEleveConnecte.
   } catch (e) {
-    erreurEl.textContent = "Code de classe, identifiant ou mot de passe incorrect.";
+    erreurEl.textContent = messageErreurConnexion(e);
   }
 }
+
+// Le lien « mot de passe oublié » n'apparaît que si l'identifiant tapé est une adresse e-mail (administrateur).
+function majLienOubli() {
+  const v = document.getElementById('loginIdentifiant').value;
+  document.getElementById('loginOubli').style.display = v.indexOf('@') !== -1 ? '' : 'none';
+}
+async function envoyerReinitAdmin() {
+  const email = document.getElementById('loginIdentifiant').value.trim();
+  const erreurEl = document.getElementById('loginErreur');
+  erreurEl.style.color = ''; erreurEl.textContent = '';
+  try {
+    await window.FirebaseApp.envoyerReinitialisationMotDePasse(email);
+    erreurEl.style.color = 'var(--accent3)';
+    erreurEl.textContent = "Si cette adresse correspond à un compte, un e-mail de réinitialisation vient d'être envoyé.";
+  } catch (e) {
+    erreurEl.textContent = (e && e.code === 'auth/network-request-failed') ? "Connexion impossible. Vérifie internet." : "Impossible d'envoyer l'e-mail pour cette adresse.";
+  }
+}
+
+// Le type de compte n'a pas pu être lu (réseau, règles) : on ne laisse jamais jouer sans vérification.
+window.onConnexionImpossible = function(reessayer) {
+  afficherDialogue({icone:'📡', titre:'Connexion impossible', texte:"Impossible de vérifier ton compte. Vérifie la connexion internet, puis réessaie.", couleur:'var(--accent2)',
+    boutons:[
+      {label:'Se déconnecter', action:(fermer)=>{ fermer(); try{ window.FirebaseApp.deconnecter(); }catch(e){} nav(0); }},
+      {label:'Réessayer', primaire:true, action:(fermer)=>{ fermer(); reessayer(); }}
+    ]});
+};
 
 async function eleveEstRetire(uid){
   const F=window.FirebaseApp;
@@ -3880,36 +4142,6 @@ function deconnecterEleve() {
 let enseignantConnecte = null; // { uid, email }
 let classeOuverte = null;      // { id, nom, codeClasse } — classe actuellement gérée
 
-async function tenterConnexionEnseignant() {
-  const email = document.getElementById('ensEmail').value;
-  const motDePasse = document.getElementById('ensMotDePasse').value;
-  const erreurEl = document.getElementById('ensErreur');
-  erreurEl.textContent = '';
-  if (!email.trim() || !motDePasse) { erreurEl.textContent = 'Remplis les 2 champs.'; return; }
-  try {
-    await window.FirebaseApp.connecterEnseignant(email, motDePasse);
-    // onAuthStateChanged s'occupe de la suite (appelle onEnseignantConnecte)
-  } catch (e) {
-    erreurEl.textContent = "E-mail ou mot de passe incorrect.";
-  }
-}
-
-async function tenterInscriptionEnseignant() {
-  const email = document.getElementById('ensInscriptionEmail').value;
-  const motDePasse = document.getElementById('ensInscriptionMotDePasse').value;
-  const erreurEl = document.getElementById('ensInscriptionErreur');
-  erreurEl.textContent = '';
-  if (!email.trim() || !motDePasse) { erreurEl.textContent = 'Remplis les 2 champs.'; return; }
-  if (motDePasse.length < 6) { erreurEl.textContent = 'Mot de passe : 6 caractères minimum.'; return; }
-  try {
-    await window.FirebaseApp.inscrireEnseignant(email, motDePasse);
-  } catch (e) {
-    erreurEl.textContent = e.code === 'auth/email-already-in-use'
-      ? 'Un compte existe déjà avec cet e-mail — reviens en arrière et utilise "Se connecter".'
-      : "Impossible de créer le compte (" + (e.code || e.message) + ").";
-  }
-}
-
 window.onEnseignantConnecte = function(user) {
   enseignantConnecte = { uid: user.uid, email: user.email };
   reglagesEnsCharges=false; reglagesEdition=null;
@@ -3923,6 +4155,167 @@ function deconnecterEnseignant() {
   classeOuverte = null;
   reglagesEnsCharges=false; reglagesEdition=null; reglagesActifs=null;
   nav(0);
+}
+
+// ================================================================
+// ESPACE ADMINISTRATEUR : comptes enseignants
+// ================================================================
+let adminConnecte = null; // { uid, email }
+let adminOccupe = false;  // évite les doubles clics pendant une opération
+
+const echapHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+window.onAdminConnecte = function(user) {
+  adminConnecte = { uid: user.uid, email: user.email };
+  document.getElementById('adminErreur').textContent = '';
+  document.getElementById('adminSucces').textContent = '';
+  document.getElementById('adminStatut').textContent = '';
+  document.getElementById('adminNouvelId').value = '';
+  adminRegenererMotDePasse();
+  nav('Admin');
+  rafraichirListeEnseignants();
+};
+
+function deconnecterAdmin() {
+  window.FirebaseApp.deconnecter();
+  adminConnecte = null;
+  nav(0);
+}
+
+function adminRegenererMotDePasse() {
+  document.getElementById('adminNouveauMdp').value = genererMotDePasse();
+}
+
+function messageErreurCompte(e) {
+  const c = e && e.code;
+  if (c === 'identifiant-pris') return 'Cet identifiant est déjà pris. Choisis-en un autre.';
+  if (c === 'identifiant-invalide' || c === 'mot-de-passe-invalide') return e.message;
+  if (c === 'auth/network-request-failed' || c === 'unavailable') return 'Connexion impossible. Vérifie internet, puis réessaie.';
+  if (c === 'auth/too-many-requests') return "Trop d'essais. Attends un peu, puis réessaie.";
+  if (c === 'permission-denied') return "Action refusée (règles Firestore ou compte non autorisé).";
+  if (c === 'session-impossible' || c === 'copie-introuvable') return "Impossible d'ouvrir ce compte avec le mot de passe enregistré : à corriger dans la console Firebase.";
+  return 'Erreur (' + (c || (e && e.message) || e) + ').';
+}
+
+async function rafraichirListeEnseignants() {
+  const conteneur = document.getElementById('listeEnseignants');
+  conteneur.innerHTML = '<div class="admin-empty">Chargement…</div>';
+  let liste;
+  try {
+    liste = await window.FirebaseApp.listerEnseignants();
+  } catch (e) {
+    console.error('Erreur listerEnseignants:', e);
+    conteneur.innerHTML = '<div class="admin-empty">Erreur de chargement (' + echapHtml(e.code || e.message || e) + ').</div>';
+    return;
+  }
+  if (liste.length === 0) {
+    conteneur.innerHTML = '<div class="admin-empty">Aucun enseignant pour l\'instant — crée le premier ci-dessous.</div>';
+    return;
+  }
+  conteneur.innerHTML = '';
+  liste.forEach(ens => {
+    const div = document.createElement('div');
+    div.className = 'admin-list-item admin-ens';
+    div.innerHTML = `<div class="corps"><div class="nom">${echapHtml(ens.identifiant)}</div>
+        <div class="detail">Mot de passe : <span class="mdp">${ens.mdp ? '••••••' : 'introuvable'}</span>${ens.mdp ? ' <button class="voir" title="Afficher / masquer">👁</button>' : ''}</div>
+        ${ens.changementIncomplet ? '<div class="alerte">⚠️ Un changement de mot de passe est resté incomplet : refais-le.</div>' : ''}</div>
+      <div class="actions"><button class="changer" title="Changer le mot de passe">🔑</button><button class="supprimer" title="Supprimer l\'enseignant">✕</button></div>`;
+    const spanMdp = div.querySelector('.mdp');
+    const voir = div.querySelector('.voir');
+    if (voir) voir.onclick = () => { spanMdp.textContent = spanMdp.textContent === '••••••' ? ens.mdp : '••••••'; };
+    div.querySelector('.changer').onclick = () => ouvrirChangementMdpEnseignant(div, ens);
+    div.querySelector('.supprimer').onclick = () => confirmerSuppressionEnseignant(ens);
+    conteneur.appendChild(div);
+  });
+}
+
+function ouvrirChangementMdpEnseignant(div, ens) {
+  if (div.querySelector('.admin-edition')) return;
+  const bloc = document.createElement('div');
+  bloc.className = 'admin-edition';
+  bloc.innerHTML = `<input type="text" class="login-field" style="font-family:monospace;letter-spacing:1px;" autocomplete="off" autocorrect="off" spellcheck="false">
+    <button class="btn btn-secondary" title="Générer un autre mot de passe">🎲</button>
+    <button class="btn btn-primary" style="width:auto;padding:10px 18px;font-size:0.95rem;">Valider</button>
+    <button class="btn btn-secondary">Annuler</button>`;
+  const champ = bloc.querySelector('input');
+  champ.value = genererMotDePasse();
+  const [bDe, bValider, bAnnuler] = bloc.querySelectorAll('button');
+  bDe.onclick = () => { champ.value = genererMotDePasse(); };
+  bAnnuler.onclick = () => bloc.remove();
+  bValider.onclick = async () => {
+    if (adminOccupe) return;
+    adminOccupe = true; bValider.disabled = true;
+    const statut = document.getElementById('adminStatut');
+    statut.style.color = 'var(--muted)'; statut.textContent = '⏳ Changement du mot de passe de ' + ens.identifiant + '…';
+    try {
+      await window.FirebaseApp.changerMotDePasse(ens.uid, champ.value);
+      statut.style.color = 'var(--accent3)'; statut.textContent = '✅ Mot de passe de ' + ens.identifiant + ' modifié.';
+    } catch (e) {
+      console.error('Erreur changerMotDePasse:', e);
+      statut.style.color = 'var(--accent1)'; statut.textContent = '⚠️ ' + messageErreurCompte(e);
+    }
+    adminOccupe = false;
+    rafraichirListeEnseignants();
+  };
+  div.appendChild(bloc);
+  champ.focus();
+}
+
+function confirmerSuppressionEnseignant(ens) {
+  if (adminOccupe) return;
+  afficherDialogue({icone:'🗑️', titre:'Supprimer « ' + echapHtml(ens.identifiant) + ' » ?',
+    texte:"Son compte, TOUTES ses classes et TOUS leurs élèves (comptes, progression, historique) seront supprimés. Cette action est irréversible.",
+    couleur:'var(--accent1)',
+    boutons:[
+      {label:'Annuler', action:(fermer)=>fermer()},
+      {label:'Supprimer', primaire:true, action:(fermer)=>{ fermer(); supprimerEnseignantAdmin(ens); }}
+    ]});
+}
+
+async function supprimerEnseignantAdmin(ens) {
+  if (adminOccupe) return;
+  adminOccupe = true;
+  const statut = document.getElementById('adminStatut');
+  statut.style.color = 'var(--muted)'; statut.textContent = '⏳ Suppression de ' + ens.identifiant + '…';
+  try {
+    const rapport = await window.FirebaseApp.supprimerEnseignantComplet(ens.uid, t => { statut.textContent = '⏳ ' + t; });
+    statut.style.color = 'var(--accent3)'; statut.textContent = '✅ ' + ens.identifiant + ' supprimé.';
+    if (rapport.comptesRestants.length) {
+      afficherDialogue({icone:'ℹ️', titre:'Comptes à supprimer à la main',
+        texte:"Les données sont supprimées, mais ces comptes d'identification n'ont pas pu l'être depuis le navigateur (anciens comptes ou mot de passe introuvable) : " + rapport.comptesRestants.map(echapHtml).join(', ') + ". À supprimer dans la console Firebase (Authentication).",
+        couleur:'var(--accent2)', boutons:[{label:'OK', primaire:true, action:(fermer)=>fermer()}]});
+    }
+  } catch (e) {
+    console.error('Erreur supprimerEnseignantComplet:', e);
+    statut.style.color = 'var(--accent1)';
+    statut.textContent = '⚠️ Suppression interrompue (' + messageErreurCompte(e) + ') Tu peux réessayer : rien n\'est perdu en double.';
+  }
+  adminOccupe = false;
+  rafraichirListeEnseignants();
+}
+
+async function adminCreerEnseignant() {
+  if (adminOccupe) return;
+  const erreurEl = document.getElementById('adminErreur');
+  const succesEl = document.getElementById('adminSucces');
+  erreurEl.textContent = ''; succesEl.textContent = '';
+  const idBrut = document.getElementById('adminNouvelId').value;
+  const mdp = document.getElementById('adminNouveauMdp').value;
+  const v = verifierIdentifiant(idBrut);
+  if (!v.ok) { erreurEl.textContent = v.erreur; return; }
+  if (!motDePasseValide(mdp)) { erreurEl.textContent = 'Mot de passe : 2 chiffres, 2 lettres, 2 chiffres (ex. 45FG32).'; return; }
+  adminOccupe = true;
+  try {
+    const r = await window.FirebaseApp.creerEnseignant(idBrut, mdp);
+    succesEl.textContent = '✅ Compte créé — identifiant : ' + r.identifiant + ' · mot de passe : ' + r.motDePasse;
+    document.getElementById('adminNouvelId').value = '';
+    adminRegenererMotDePasse();
+    rafraichirListeEnseignants();
+  } catch (e) {
+    console.error('Erreur creerEnseignant:', e);
+    erreurEl.textContent = messageErreurCompte(e);
+  }
+  adminOccupe = false;
 }
 
 async function rafraichirListeClasses() {
