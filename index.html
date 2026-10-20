@@ -364,6 +364,17 @@ body {
 .admin-statut { text-align: center; font-size: 0.88rem; font-weight: 700; min-height: 1.2em; margin: 8px 0; color: var(--muted); }
 .login-lien { background: none; border: none; color: var(--accent4); font-family: 'Nunito', sans-serif; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: underline; margin-top: 10px; width: 100%; }
 
+/* ========== ESPACE ENSEIGNANT : menu, encadré, onglets ========== */
+.ens-entete { display:flex; align-items:center; justify-content:space-between; width:100%; max-width:480px; margin-top:40px; gap:10px; }
+.ens-entete .app-title { margin:0; text-align:left; }
+.cadre-creation { background:var(--card); border:2px solid var(--surface); border-radius:16px; padding:16px 18px; margin-top:20px; }
+.cadre-creation .cadre-titre { font-weight:800; margin-bottom:12px; }
+.cadre-creation .login-field { background:var(--surface); }
+.onglets-classes { display:flex; gap:8px; width:100%; overflow-x:auto; padding:2px 0 8px; margin:10px 0 12px; flex-shrink:0; }
+.onglet-classe { flex:0 0 auto; white-space:nowrap; padding:8px 16px; border-radius:50px; border:2px solid transparent; background:var(--card); color:var(--text); font-family:'Nunito',sans-serif; font-size:0.85rem; font-weight:700; cursor:pointer; transition:all 0.13s; }
+.onglet-classe:hover { background:var(--card2); }
+.onglet-classe.selected { border-color:var(--accent2); color:var(--accent2); }
+
 /* ========== GAME SCREEN ========== */
 .game-header {
   display: flex;
@@ -3774,17 +3785,21 @@ window.MoteurAdaptatif = {
      ÉCRAN ENSEIGNANT : TABLEAU DE BORD (liste des classes)
 ===================================================== -->
 <div class="screen" id="sEnsAdmin">
-  <div class="app-title" style="margin-top:40px;">Mes classes</div>
+  <div class="ens-entete">
+    <div class="app-title">Mes classes</div>
+    <button class="btn btn-secondary" style="padding:8px 16px;font-size:0.78rem;" onclick="deconnecterEnseignant()">Déconnexion</button>
+  </div>
   <div class="login-box" style="margin-top:24px;max-width:480px;">
-    <div id="listeClasses"></div>
-    <div style="margin-top:20px;">
-      <input type="text" class="login-field" id="nouvelleClasseNom" placeholder="Nom de la classe (ex: CM1-A)">
-      <input type="text" class="login-field" id="nouvelleClasseAnnee" placeholder="Année (ex: 2026-2027)">
+    <button class="btn btn-secondary" style="width:100%;" onclick="ouvrirReglages()">⚙️ Réglages du logiciel</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirResultats()">📊 Résultats des élèves</button>
+    <div id="listeClasses" style="margin-top:20px;"></div>
+    <div class="cadre-creation">
+      <div class="cadre-titre">Créer une classe</div>
+      <input type="text" class="login-field" id="nouvelleClasseNom" placeholder="Nom de la classe (ex : CM1-A)">
+      <input type="text" class="login-field" id="nouvelleClasseAnnee" placeholder="Année (ex : 2026-2027)">
       <div class="login-error" id="ensAdminErreur"></div>
-      <button class="btn btn-primary" onclick="creerNouvelleClasse()">+ Créer une classe</button>
+      <button class="btn btn-primary" onclick="creerNouvelleClasse()">+ Créer la classe</button>
     </div>
-    <button class="btn btn-secondary" style="margin-top:14px;width:100%;" onclick="ouvrirReglages()">⚙️ Réglages du logiciel</button>
-    <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="deconnecterEnseignant()">Déconnexion</button>
   </div>
 </div>
 
@@ -3796,7 +3811,6 @@ window.MoteurAdaptatif = {
   <div class="login-box" style="margin-top:24px;max-width:480px;">
     <div id="listeEleves"></div>
     <div class="admin-statut" id="ensClasseStatut"></div>
-    <button class="btn btn-secondary" style="width:100%;margin-top:6px;" onclick="ouvrirTableauClasse()">📊 Tableau de la classe</button>
     <div style="margin-top:20px;">
       <div style="font-weight:800;margin-bottom:10px;">Ajouter un élève</div>
       <input type="text" class="login-field" id="nouvelEleveId" placeholder="Prénom de l'élève (ex : Léa)" autocomplete="off" autocorrect="off" spellcheck="false">
@@ -3832,7 +3846,7 @@ window.MoteurAdaptatif = {
   <div class="login-box" style="margin-top:12px;max-width:480px;">
     <div class="progres-legende" id="ensEleveSous"></div>
     <div id="ensEleveListe" style="display:flex;flex-direction:column;gap:7px;"></div>
-    <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="nav('EnsClasse')">← Retour à la classe</button>
+    <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="nav('EnsTableau','back')">← Retour au tableau</button>
   </div>
 </div>
 
@@ -3840,10 +3854,11 @@ window.MoteurAdaptatif = {
      ÉCRAN ENSEIGNANT : TABLEAU DE LA CLASSE (élèves × 51 compétences)
 ===================================================== -->
 <div class="screen" id="sEnsTableau">
-  <div class="app-title" style="margin-top:40px;font-size:1.8rem;" id="ensTableauTitre">Tableau de la classe</div>
-  <div class="progres-legende" style="margin-top:8px;">Chiffre = palier (1 à 6) · petite barre = avancement vers le palier suivant · point = pas encore travaillée. Fais défiler vers la droite pour voir toutes les compétences.</div>
+  <button class="btn-back" style="margin-top:20px;" onclick="nav('EnsAdmin','back')">← Retour au menu</button>
+  <div class="app-title" style="font-size:1.8rem;">📊 Résultats des élèves</div>
+  <div class="onglets-classes" id="ensOnglets"></div>
+  <div class="progres-legende">Chiffre = palier (1 à 6) · petite barre = avancement vers le palier suivant · point = pas encore travaillée. Clique sur le nom d'un élève pour voir sa fiche. Fais défiler vers la droite pour voir toutes les compétences.</div>
   <div class="tableau-wrap" id="ensTableauBox"></div>
-  <button class="btn btn-secondary" style="margin-top:20px;width:100%;max-width:480px;" onclick="nav('EnsClasse')">← Retour à la classe</button>
 </div>
 
 <!-- ====================================================
@@ -4495,7 +4510,6 @@ async function rafraichirListeEleves() {
     const m = mdps[uid];
     const div = document.createElement('div');
     div.className = 'admin-list-item admin-ens';
-    div.style.cursor = 'pointer';
     div.innerHTML = `<div class="corps"><div class="nom">${echapHtml(e.prenom)}</div>
         <div class="detail">Mot de passe : <span class="mdp">${m ? '••••••' : 'introuvable'}</span>${m ? ' <button class="voir" title="Afficher / masquer">👁</button>' : ''}</div>
         ${m && m.changementIncomplet ? '<div class="alerte">⚠️ Un changement de mot de passe est resté incomplet : refais-le.</div>' : ''}</div>
@@ -4524,7 +4538,6 @@ async function rafraichirListeEleves() {
         rafraichirListeEleves();
       }
     };
-    div.onclick = () => ouvrirFicheEleve(e);
     conteneur.appendChild(div);
   });
 }
@@ -4866,15 +4879,54 @@ function rendreFicheEleve(m){
 
 // ---- Tableau de la classe : élèves en lignes, 51 compétences en colonnes ----
 let jetonTableau=0;
-async function ouvrirTableauClasse(){
+let classesResultats=[], classeResultatsId=null;
+
+async function ouvrirResultats(){
   const jeton=++jetonTableau;
-  document.getElementById('ensTableauTitre').textContent=classeOuverte.nom;
   const box=document.getElementById('ensTableauBox');
+  document.getElementById('ensOnglets').innerHTML='';
   box.innerHTML='<div class="progres-msg">⏳ Chargement…</div>';
   nav('EnsTableau','fwd');
   try{
     await chargerReglagesPourAffichage();
-    const eleves=(await window.FirebaseApp.listerEleves(classeOuverte.id)).slice().sort((a,b)=>String(a.prenom).localeCompare(String(b.prenom),'fr'));
+    const classes=(await window.FirebaseApp.listerClasses(enseignantConnecte.uid)).slice().sort((a,b)=>
+      String(a.nom).localeCompare(String(b.nom),'fr',{numeric:true}) || String(a.annee).localeCompare(String(b.annee),'fr'));
+    if(jeton!==jetonTableau)return;
+    classesResultats=classes;
+    if(classes.length===0){
+      box.innerHTML='';
+      box.appendChild(messageAvecBouton("Tu n'as pas encore de classe. Crée-en une depuis le menu « Mes classes »."));
+      return;
+    }
+    classeResultatsId=classes[0].id;
+    rendreOnglets();
+    afficherTableauClasse(classes[0]);
+  }catch(e){
+    console.warn('Lecture des classes impossible :',e);
+    if(jeton!==jetonTableau)return;
+    box.innerHTML='';
+    box.appendChild(messageAvecBouton('⚠️ Impossible de charger tes classes (problème de connexion).','Réessayer',ouvrirResultats));
+  }
+}
+
+function rendreOnglets(){
+  const zone=document.getElementById('ensOnglets');
+  zone.innerHTML='';
+  classesResultats.forEach(c=>{
+    const b=document.createElement('button');
+    b.className='onglet-classe'+(c.id===classeResultatsId?' selected':'');
+    b.textContent=c.nom+(c.annee?' · '+c.annee:'');
+    b.onclick=()=>{ if(c.id===classeResultatsId)return; classeResultatsId=c.id; rendreOnglets(); afficherTableauClasse(c); };
+    zone.appendChild(b);
+  });
+}
+
+async function afficherTableauClasse(classe){
+  const jeton=++jetonTableau;
+  const box=document.getElementById('ensTableauBox');
+  box.innerHTML='<div class="progres-msg">⏳ Chargement…</div>';
+  try{
+    const eleves=(await window.FirebaseApp.listerEleves(classe.id)).slice().sort((a,b)=>String(a.prenom).localeCompare(String(b.prenom),'fr'));
     if(jeton!==jetonTableau)return;
     if(eleves.length===0){ box.innerHTML='<div class="progres-msg">Aucun élève dans cette classe.</div>'; return; }
     const res=await Promise.allSettled(eleves.map(e=>lireProgressionsEleve(e.uid||e.id)));
@@ -4884,7 +4936,7 @@ async function ouvrirTableauClasse(){
     console.warn('Lecture du tableau impossible :',e);
     if(jeton!==jetonTableau)return;
     box.innerHTML='';
-    box.appendChild(messageAvecBouton('⚠️ Impossible de charger la classe (problème de connexion).','Réessayer',ouvrirTableauClasse));
+    box.appendChild(messageAvecBouton('⚠️ Impossible de charger la classe (problème de connexion).','Réessayer',()=>afficherTableauClasse(classe)));
   }
 }
 function rendreTableauClasse(eleves,resultats){
@@ -4908,6 +4960,7 @@ function rendreTableauClasse(eleves,resultats){
   eleves.forEach((e,idx)=>{
     const tr=document.createElement('tr');
     const th=document.createElement('th'); th.className='th-eleve'; th.textContent=e.prenom; th.title=e.prenom+' (identifiant : '+e.identifiant+')';
+    th.style.cursor='pointer'; th.onclick=()=>ouvrirFicheEleve(e);
     tr.appendChild(th);
     const r=resultats[idx];
     if(r.status!=='fulfilled'){
