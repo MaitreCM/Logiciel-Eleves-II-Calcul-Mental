@@ -649,6 +649,18 @@ body {
 }
 .autres-arrow { font-size: 1.8rem; color: var(--muted); font-family: 'Fredoka One', cursive; position: absolute; right: 18px; }
 
+/* Menu élève : boutons Grandeurs / Estimation + onglets Mes progrès */
+.mini-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; width:100%; max-width:400px; margin-top:14px; }
+.mini-cat { display:flex; align-items:center; justify-content:center; gap:8px; background:var(--card); border:2.5px solid transparent; border-radius:14px; padding:14px 8px; cursor:pointer; font-family:'Nunito',sans-serif; font-size:0.92rem; font-weight:800; color:var(--clr); transition:all 0.18s ease; }
+.mini-cat:hover { transform:translateY(-3px); }
+.mini-cat:active { transform:scale(0.97); }
+.mini-cat .mini-icon { font-size:1.3rem; line-height:1; }
+.progres-onglets { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; width:100%; margin-bottom:12px; }
+.progres-onglet { display:flex; flex-direction:column; align-items:center; gap:2px; padding:8px 4px; border-radius:12px; border:2px solid transparent; background:var(--card); color:var(--clr); font-family:'Nunito',sans-serif; font-size:0.72rem; font-weight:800; cursor:pointer; transition:all 0.13s; }
+.progres-onglet .po-icon { font-size:1.15rem; line-height:1.2; }
+.progres-onglet:hover { background:var(--card2); }
+.progres-onglet.selected { border-color:var(--clr); background:var(--card2); }
+
 /* Results */
 .result-hero {
   display: flex;
@@ -3887,10 +3899,14 @@ window.MoteurAdaptatif = {
     </div>
   </div>
 
-  <!-- Bouton "Autres types de calculs" -->
-  <div class="autres-btn" onclick="openAutres()">
-    <span class="autres-title">Autres types de calculs</span>
-    <span class="autres-arrow">›</span>
+  <!-- Boutons "Grandeurs" et "Estimation" -->
+  <div class="mini-row">
+    <div class="mini-cat" style="--clr:#4ecdc4;" onclick="selectCat('mesure')">
+      <span class="mini-icon">📏</span><span>Grandeurs</span>
+    </div>
+    <div class="mini-cat" style="--clr:#ff9f43;" onclick="selectCat('estimation')">
+      <span class="mini-icon">≈</span><span>Estimation</span>
+    </div>
   </div>
 
   <!-- Bouton "Mes progrès" -->
@@ -3901,21 +3917,13 @@ window.MoteurAdaptatif = {
 </div>
 
 <!-- ====================================================
-     ÉCRAN 1b : AUTRES TYPES DE CALCULS
-===================================================== -->
-<div class="screen" id="s1b">
-  <div class="app-title">Autres types de calculs</div>
-  <button class="btn-back" onclick="nav(1,'back')">← Retour</button>
-  <div id="autresTypeList" style="width:100%; display:flex; flex-direction:column; gap:10px; overflow-y:auto; flex:1; padding-bottom:8px;"></div>
-</div>
-
-<!-- ====================================================
      ÉCRAN 6 : MES PROGRÈS (étoiles par compétence)
 ===================================================== -->
 <div class="screen" id="s6">
   <div class="app-title">⭐ Mes progrès</div>
   <button class="btn-back" onclick="nav(1,'back')">← Retour</button>
   <div class="progres-legende">Chaque étoile est un palier. L'étoile en cours se remplit quand tu réussis tes calculs.</div>
+  <div class="progres-onglets" id="progresOnglets"></div>
   <div id="progresList" style="width:100%; display:flex; flex-direction:column; gap:7px; overflow-y:auto; flex:1; padding-bottom:8px;"></div>
 </div>
 
@@ -5104,7 +5112,7 @@ function nav(screenNum, dir='fwd') {
 // SCREEN 1 → 2 : select category
 // ================================================================
 let s2Origin = 1; // which screen s2 back button goes to
-let s3Origin = 2; // which screen s3 back button goes to (2 or '1b')
+let s3Origin = 2; // which screen s3 back button goes to
 
 function goBackFromS2(){ nav(s2Origin,'back'); }
 function goBackFromS3(){ nav(s3Origin,'back'); }
@@ -5178,10 +5186,25 @@ async function chargerToutesProgressions(){
   if(document.getElementById('s6').classList.contains('active')) rendreProgres();
 }
 
+let progresCat='add';
 function openProgres(){
+  progresCat='add'; // on ouvre toujours sur l'addition
   if(progressionsEtat==='idle'||progressionsEtat==='erreur') chargerToutesProgressions();
+  rendreOngletsProgres();
   rendreProgres();
   nav(6,'fwd');
+}
+function rendreOngletsProgres(){
+  const zone=document.getElementById('progresOnglets');
+  zone.innerHTML='';
+  ORDRE_CATS.forEach(cat=>{
+    const b=document.createElement('button');
+    b.className='progres-onglet'+(cat===progresCat?' selected':'');
+    b.style.setProperty('--clr',COULEURS_CAT[cat]);
+    b.innerHTML='<span class="po-icon">'+CAT_ICONS[cat]+'</span><span>'+CAT_NAMES[cat]+'</span>';
+    b.onclick=()=>{ progresCat=cat; rendreOngletsProgres(); rendreProgres(); };
+    zone.appendChild(b);
+  });
 }
 function rendreProgres(){
   const box=document.getElementById('progresList');
@@ -5191,102 +5214,27 @@ function rendreProgres(){
     return;
   }
   if(progressionsEtat!=='ok'){ box.innerHTML='<div class="progres-msg">⏳ Chargement…</div>'; return; }
-  ORDRE_CATS.forEach(cat=>{
-    const titre=document.createElement('div');
-    titre.className='autres-section-title';
-    titre.style.color=COULEURS_CAT[cat];
-    titre.textContent=CAT_NAMES[cat];
-    box.appendChild(titre);
-    TYPES[cat].forEach(t=>{
-      const row=document.createElement('div');
-      row.className='progres-row';
-      const nom=document.createElement('div');
-      nom.className='progres-nom'; nom.textContent=t.name.replace(/\n/g,' ');
-      row.appendChild(nom);
-      row.appendChild(creerSlotEtoiles(t.id));
-      box.appendChild(row);
-    });
+  TYPES[progresCat].forEach(t=>{
+    const row=document.createElement('div');
+    row.className='progres-row';
+    const nom=document.createElement('div');
+    nom.className='progres-nom'; nom.textContent=t.name.replace(/\n/g,' ');
+    row.appendChild(nom);
+    row.appendChild(creerSlotEtoiles(t.id));
+    box.appendChild(row);
   });
-}
-
-const EXTRA_CATS = ['mesure','estimation'];
-
-function openAutres(){
-  renderAutresList();
-  nav('1b','fwd');
-}
-
-function renderAutresList(){
-  const container = document.getElementById('autresTypeList');
-  container.innerHTML = '';
-
-  EXTRA_CATS.forEach(cat => {
-    document.body.className = 'cat-' + cat;
-
-    // Section title
-    const titleEl = document.createElement('div');
-    titleEl.className = 'autres-section-title';
-    titleEl.style.setProperty('--clr-active', `var(--${cat === 'frac' ? 'c77dff' : cat})`);
-    // Map cat to color
-    const catColors = { mesure:'#4ecdc4', estimation:'#ff9f43' };
-    titleEl.style.color = catColors[cat];
-    titleEl.textContent = CAT_NAMES[cat];
-    container.appendChild(titleEl);
-
-    // Type grid
-    const grid = document.createElement('div');
-    grid.className = 'autres-type-grid';
-
-    TYPES[cat].forEach(t => {
-      const card = document.createElement('div');
-      card.className = 'autres-type-card';
-      card.dataset.tid = t.id;
-      card.dataset.cat = cat;
-      const nomEl = document.createElement('div');
-      nomEl.textContent = t.name;
-      card.appendChild(nomEl);
-      card.appendChild(creerSlotEtoiles(t.id));
-      card.style.setProperty('--clr-active', catColors[cat]);
-      card.onclick = () => selectTypeFromAutres(cat, t);
-      grid.appendChild(card);
-    });
-
-    container.appendChild(grid);
-  });
-  // Reset body class
-  document.body.className = '';
-}
-
-function selectTypeFromAutres(cat, t){
-  // Highlight selected
-  document.querySelectorAll('.autres-type-card').forEach(c => c.classList.remove('selected'));
-  const card = document.querySelector(`.autres-type-card[data-tid="${t.id}"]`);
-  if(card) card.classList.add('selected');
-
-  // Set state
-  selCat = cat;
-  selTypeId = t.id;
-  selSubIdx = 0;
-  s2Origin = '1b';
-  s3Origin = '1b'; // retour depuis s3 → s1b
-
-  document.body.className = 'cat-' + cat;
-
-  setTimeout(() => nav(3,'fwd'), 140);
 }
 
 function selectCat(cat) {
   selCat=cat; selTypeId=null; selSubIdx=0;
   document.body.className='cat-'+cat;
 
-  // Track which screen we came from
-  const extras = ['mesure','estimation'];
-  s2Origin = extras.includes(cat) ? '1b' : 1;
+  s2Origin = 1; // le retour ramène toujours au menu
 
   // update badge
   document.getElementById('catBadgeIcon').textContent=CAT_ICONS[cat];
   document.getElementById('catBadgeName').textContent=CAT_NAMES[cat];
-  document.getElementById('catBadge').style.setProperty('--clr-active','var(--'+cat+')');
+  document.getElementById('catBadge').style.setProperty('--clr-active',COULEURS_CAT[cat]);
 
   // render types grid
   renderTypeGrid(cat);
