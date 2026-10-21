@@ -323,6 +323,19 @@ body {
   margin-bottom: 14px;
 }
 .login-field:focus { outline: none; border-color: var(--accent4); }
+.login-field { color-scheme: dark; }
+/* Remplissage automatique du navigateur : on garde le fond sombre (sinon il passe en blanc / bleu clair) */
+.login-field:-webkit-autofill,
+.login-field:-webkit-autofill:hover,
+.login-field:-webkit-autofill:focus,
+.login-field:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--card) inset !important;
+  box-shadow: 0 0 0 1000px var(--card) inset !important;
+  -webkit-text-fill-color: var(--text) !important;
+  caret-color: var(--text);
+  transition: background-color 9999s ease-in-out 0s;
+}
+.cadre-creation .login-field:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px var(--surface) inset !important; box-shadow: 0 0 0 1000px var(--surface) inset !important; }
 .login-error {
   color: var(--accent1);
   font-size: 0.88rem;
