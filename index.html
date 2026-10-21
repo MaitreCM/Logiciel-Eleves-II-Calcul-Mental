@@ -3808,7 +3808,7 @@ window.MoteurAdaptatif = {
     <div class="cadre-creation">
       <div class="cadre-titre">Créer une classe</div>
       <input type="text" class="login-field" id="nouvelleClasseNom" placeholder="Nom de la classe (ex : CM1-A)">
-      <input type="text" class="login-field" id="nouvelleClasseAnnee" placeholder="Année (ex : 2026-2027)">
+      <input type="text" class="login-field" id="nouvelleClasseAnnee" placeholder="Année, compléments d'information… (facultatif, ex : 2026-2027)">
       <div class="login-error" id="ensAdminErreur"></div>
       <button class="btn btn-primary" onclick="creerNouvelleClasse()">+ Créer la classe</button>
     </div>
@@ -4454,7 +4454,7 @@ async function creerNouvelleClasse() {
   const annee = document.getElementById('nouvelleClasseAnnee').value.trim();
   const erreurEl = document.getElementById('ensAdminErreur');
   erreurEl.textContent = '';
-  if (!nom || !annee) { erreurEl.textContent = 'Remplis le nom et l\'année de la classe.'; return; }
+  if (!nom) { erreurEl.textContent = 'Écris le nom de la classe.'; return; }
 
   if (!enseignantConnecte) {
     erreurEl.textContent = "Erreur interne : session enseignant introuvable. Reconnecte-toi.";
@@ -4898,7 +4898,7 @@ async function ouvrirResultats(){
   try{
     await chargerReglagesPourAffichage();
     const classes=(await window.FirebaseApp.listerClasses(enseignantConnecte.uid)).slice().sort((a,b)=>
-      String(a.nom).localeCompare(String(b.nom),'fr',{numeric:true}) || String(a.annee).localeCompare(String(b.annee),'fr'));
+      String(a.nom).localeCompare(String(b.nom),'fr',{numeric:true}) || String(a.annee||'').localeCompare(String(b.annee||''),'fr'));
     if(jeton!==jetonTableau)return;
     classesResultats=classes;
     if(classes.length===0){
