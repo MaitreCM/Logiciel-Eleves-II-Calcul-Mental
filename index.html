@@ -764,7 +764,7 @@ body.cat-suite { --clr-active: #ee5a24; }
 body.cat-proport { --clr-active: #0652dd; }
 
 /* ===== AVATAR ÉLÈVE ===== */
-.avatar-btn { position:absolute; top:12px; left:14px; display:flex; align-items:center; background:none; border:none; cursor:pointer; padding:0; }
+.avatar-btn { position:absolute; top:12px; right:14px; z-index:5; display:flex; align-items:center; background:none; border:none; cursor:pointer; padding:0; }
 .avatar-rond { width:52px; height:52px; border-radius:50%; overflow:hidden; display:flex; align-items:center; justify-content:center; font-size:1.8rem; line-height:1; background:var(--card2); border:3px solid var(--card); box-shadow:0 2px 8px rgba(0,0,0,0.35); transition:transform .15s; flex-shrink:0; }
 .avatar-rond img { width:100%; height:100%; object-fit:cover; border-radius:50%; display:block; }
 .avatar-btn:hover .avatar-rond { transform:scale(1.08) rotate(-4deg); }
@@ -783,6 +783,16 @@ body.cat-proport { --clr-active: #0652dd; }
 .avatar-actions { display:flex; gap:8px; }
 .avatar-actions .btn { flex:1; }
 .avatar-actions .btn:disabled { opacity:.45; cursor:not-allowed; }
+
+/* ===== MENU AVATAR + TITRE ACCUEIL + AVATARS ENSEIGNANT ===== */
+#s1,#s2,#s3,#s6 { position:relative; }
+.app-title-xl { font-size:clamp(2.6rem,12vw,3.9rem); line-height:1.05; margin:6px 0 4px; }
+.avatar-menu { position:fixed; z-index:240; display:none; min-width:210px; overflow-y:auto; background:var(--card); border-radius:16px; padding:6px; box-shadow:0 8px 28px rgba(0,0,0,0.5); border:2px solid var(--card2); }
+.avatar-menu.open { display:block; }
+.avatar-menu button { display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:none; border:none; border-radius:10px; padding:11px 12px; font-family:'Nunito',sans-serif; font-size:0.92rem; font-weight:800; color:var(--text); cursor:pointer; }
+.avatar-menu button:hover { background:var(--card2); }
+.avatar-grand { width:min(160px,45vw); height:min(160px,45vw); font-size:4rem; margin:8px auto 8px; border-width:4px; border-color:var(--surface); }
+.avatar-ens { width:44px; height:44px; font-size:1.4rem; border-width:2px; box-shadow:none; flex-shrink:0; }
 </style>
 </head>
 <body>
@@ -1106,6 +1116,19 @@ if(typeof module !== 'undefined' && module.exports){
     return res;
   }
 
+  // Avatars choisis par les élèves : { uid: 'F3' } (absent = pas encore choisi / illisible).
+  async function lireAvatarsEleves(uids) {
+    const res = {};
+    await Promise.all(uids.map(async uid => {
+      try {
+        const snap = await getDoc(doc(db, 'profilsEleves', uid));
+        const a = snap.exists() ? snap.data().avatar : null;
+        if (typeof a === 'string') res[uid] = a;
+      } catch (e) { /* ignoré : rond neutre affiché */ }
+    }));
+    return res;
+  }
+
   // --- Classes et élèves : listes ---
   async function creerClasse(enseignantUid, nomClasse, annee) {
     const ref = await addDoc(collection(db, 'classes'), {
@@ -1185,7 +1208,7 @@ if(typeof module !== 'undefined' && module.exports){
     auth, db, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs,
     connecter, deconnecter, envoyerReinitialisationMotDePasse, determinerRole,
     creerEnseignant, listerEnseignants, changerMotDePasse,
-    creerClasse, listerClasses, listerEleves, creerEleve, lireMotsDePasseEleves,
+    creerClasse, listerClasses, listerEleves, creerEleve, lireMotsDePasseEleves, lireAvatarsEleves,
     supprimerEleveComplet, supprimerClasseComplete, supprimerEnseignantComplet,
   };
 
@@ -3897,7 +3920,10 @@ window.MoteurAdaptatif = {
      ÉCRAN ENSEIGNANT : FICHE D'UN ÉLÈVE (étoiles par compétence)
 ===================================================== -->
 <div class="screen" id="sEnsEleve">
-  <div class="app-title" style="margin-top:40px;font-size:1.8rem;" id="ensEleveTitre">Élève</div>
+  <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:40px;">
+    <span class="avatar-rond avatar-ens" id="ensEleveAvatar" style="width:60px;height:60px;font-size:1.9rem;">🙂</span>
+    <div class="app-title" style="margin:0;font-size:1.8rem;" id="ensEleveTitre">Élève</div>
+  </div>
   <div class="login-box" style="margin-top:12px;max-width:480px;">
     <div class="progres-legende" id="ensEleveSous"></div>
     <div id="ensEleveListe" style="display:flex;flex-direction:column;gap:7px;"></div>
@@ -3920,13 +3946,12 @@ window.MoteurAdaptatif = {
      ÉCRAN 1 : CHOIX DE L'OPÉRATION
 ===================================================== -->
 <div class="screen" id="s1" style="position:relative;">
-  <button class="avatar-btn" id="avatarBtn" onclick="ouvrirChoixAvatar()" title="Choisir mon avatar">
-    <span class="avatar-rond" id="avatarRond">🙂</span>
+  <button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
+    <span class="avatar-rond">🙂</span>
   </button>
-  <button class="btn btn-secondary" style="position:absolute;top:16px;right:16px;padding:8px 16px;font-size:0.78rem;" onclick="deconnecterEleve()">Déconnexion</button>
-  <div class="app-title">🧮 Calcul Mental</div>
+  <div class="app-title app-title-xl">🧮 Calcul<br>Mental</div>
 
-  <div class="cat-grid" style="margin-top: 64px;">
+  <div class="cat-grid" style="margin-top: 22px;">
     <div class="cat-card" data-cat="add" onclick="selectCat('add')">
       <span class="cat-icon">➕</span>
       <div class="cat-name">Addition</div>
@@ -3955,11 +3980,6 @@ window.MoteurAdaptatif = {
     </div>
   </div>
 
-  <!-- Bouton "Mes progrès" -->
-  <div class="autres-btn" onclick="openProgres()">
-    <span class="autres-title">⭐ Mes progrès</span>
-    <span class="autres-arrow">›</span>
-  </div>
 </div>
 
 <!-- ====================================================
@@ -3977,10 +3997,21 @@ window.MoteurAdaptatif = {
   </div>
 </div>
 
+<!-- Menu de l'avatar -->
+<div class="avatar-menu" id="avatarMenu" role="menu">
+  <div class="avatar-rond avatar-grand" id="avatarMenuGrand">🙂</div>
+  <button onclick="menuAvatarAction('avatar')">🖼️ Changer d'avatar</button>
+  <button onclick="menuAvatarAction('progres')">⭐ Mes progrès</button>
+  <button onclick="menuAvatarAction('deconnexion')">🚪 Déconnexion</button>
+</div>
+
 <!-- ====================================================
      ÉCRAN 6 : MES PROGRÈS (étoiles par compétence)
 ===================================================== -->
 <div class="screen" id="s6">
+  <button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
+    <span class="avatar-rond">🙂</span>
+  </button>
   <div class="app-title">⭐ Mes progrès</div>
   <button class="btn-back" onclick="nav(1,'back')">← Retour</button>
   <div class="progres-legende">Chaque étoile est un palier. L'étoile en cours se remplit quand tu réussis tes calculs.</div>
@@ -3992,6 +4023,9 @@ window.MoteurAdaptatif = {
      ÉCRAN 2 : CHOIX DU TYPE (2 colonnes)
 ===================================================== -->
 <div class="screen" id="s2">
+  <button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
+    <span class="avatar-rond">🙂</span>
+  </button>
   <button class="btn-back" id="s2BackBtn" onclick="goBackFromS2()">← Retour</button>
   <div class="cat-badge" id="catBadge">
     <span class="cat-badge-icon" id="catBadgeIcon">➕</span>
@@ -4005,6 +4039,9 @@ window.MoteurAdaptatif = {
      ÉCRAN 3 : NIVEAU + RÉGLAGES
 ===================================================== -->
 <div class="screen" id="s3">
+  <button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
+    <span class="avatar-rond">🙂</span>
+  </button>
   <button class="btn-back" onclick="goBackFromS3()">← Retour</button>
   <div class="app-title" style="font-size:1.5rem; margin-bottom:16px;">Combien de questions ?</div>
 
@@ -4324,7 +4361,7 @@ function appliquerAvatar(el,id){
   if(avatarValide(id)) el.innerHTML='<img src="'+AVATAR_IMGS[id]+'" alt="Avatar">';
   else el.textContent='🙂';
 }
-function majAvatarAccueil(){ appliquerAvatar(document.getElementById('avatarRond'),avatarActuel); }
+function majAvatarAccueil(){ document.querySelectorAll('.avatar-btn .avatar-rond').forEach(el=>appliquerAvatar(el,avatarActuel)); appliquerAvatar(document.getElementById('avatarMenuGrand'),avatarActuel); }
 
 function dessinerChoixAvatar(){
   const liste=document.getElementById('avatarListe');
@@ -4366,6 +4403,34 @@ async function validerAvatar(){
     const F=window.FirebaseApp;
     await F.updateDoc(F.doc(F.db,'profilsEleves',uid),{avatar:avatarActuel});
   }catch(e){ console.warn('Avatar non enregistré en ligne (gardé sur cet appareil) :',e); }
+}
+
+// ---- Menu de l'avatar (écrans de menu uniquement : pas pendant les séances de calcul) ----
+function fermerMenuAvatar(){ const m=document.getElementById('avatarMenu'); if(m) m.classList.remove('open'); }
+function toggleMenuAvatar(btn,ev){
+  if(ev) ev.stopPropagation();
+  const m=document.getElementById('avatarMenu');
+  if(m.classList.contains('open')){ fermerMenuAvatar(); return; }
+  const r=btn.getBoundingClientRect();
+  m.style.top=(r.bottom+6)+'px';
+  m.style.right=Math.max(8,window.innerWidth-r.right)+'px';
+  m.style.maxHeight=Math.max(200,window.innerHeight-r.bottom-16)+'px';
+  m.classList.add('open');
+}
+function menuAvatarAction(a){
+  fermerMenuAvatar();
+  if(a==='avatar') ouvrirChoixAvatar();
+  else if(a==='progres') openProgres();
+  else if(a==='deconnexion') deconnecterEleve();
+}
+document.addEventListener('click',function(e){ if(!e.target.closest('#avatarMenu')) fermerMenuAvatar(); });
+window.addEventListener('scroll',fermerMenuAvatar,{passive:true});
+document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ fermerMenuAvatar(); fermerChoixAvatar(); } });
+
+// ---- Avatars vus par l'enseignant ----
+const cacheAvatarsEleves={}; // uid -> identifiant d'avatar (ou null)
+function avatarHtmlEns(id){
+  return '<span class="avatar-rond avatar-ens">'+(avatarValide(id)?'<img src="'+AVATAR_IMGS[id]+'" alt="">':'🙂')+'</span>';
 }
 
 // Appelée à la connexion : cache local d'abord (instantané), puis version en ligne.
@@ -4686,10 +4751,12 @@ let ensClasseOccupe = false; // évite les doubles clics pendant une opération
 async function rafraichirListeEleves() {
   const conteneur = document.getElementById('listeEleves');
   conteneur.innerHTML = '<div class="admin-empty">Chargement…</div>';
-  let eleves, mdps;
+  let eleves, mdps, avatars = {};
   try {
     eleves = (await window.FirebaseApp.listerEleves(classeOuverte.id)).slice().sort((a, b) => String(a.prenom).localeCompare(String(b.prenom), 'fr'));
     mdps = await window.FirebaseApp.lireMotsDePasseEleves(eleves.map(e => e.uid || e.id));
+    avatars = await window.FirebaseApp.lireAvatarsEleves(eleves.map(e => e.uid || e.id));
+    eleves.forEach(e => { const u = e.uid || e.id; cacheAvatarsEleves[u] = avatars[u] || null; });
   } catch (e) {
     console.error('Erreur rafraichirListeEleves:', e);
     conteneur.innerHTML = '<div class="admin-empty">Erreur de chargement (' + echapHtml(e.code || e.message || e) + ').</div>';
@@ -4705,7 +4772,7 @@ async function rafraichirListeEleves() {
     const m = mdps[uid];
     const div = document.createElement('div');
     div.className = 'admin-list-item admin-ens';
-    div.innerHTML = `<div class="corps"><div class="nom">${echapHtml(e.prenom)}</div>
+    div.innerHTML = `${avatarHtmlEns(avatars[uid])}<div class="corps"><div class="nom">${echapHtml(e.prenom)}</div>
         <div class="detail">Mot de passe : <span class="mdp">${m ? '••••••' : 'introuvable'}</span>${m ? ' <button class="voir" title="Afficher / masquer">👁</button>' : ''}</div>
         ${m && m.changementIncomplet ? '<div class="alerte">⚠️ Un changement de mot de passe est resté incomplet : refais-le.</div>' : ''}</div>
       <div class="actions"><button class="changer" title="Changer le mot de passe">🔑</button><button class="supprimer" title="Retirer l\'élève">✕</button></div>`;
@@ -5038,6 +5105,14 @@ async function ouvrirFicheEleve(eleve){
   eleveFiche=eleve;
   const jeton=++jetonFiche;
   document.getElementById('ensEleveTitre').textContent=eleve.prenom;
+  const uidFiche=eleve.uid||eleve.id, elAvatarFiche=document.getElementById('ensEleveAvatar');
+  appliquerAvatar(elAvatarFiche,cacheAvatarsEleves[uidFiche]);
+  if(!(uidFiche in cacheAvatarsEleves)){
+    window.FirebaseApp.lireAvatarsEleves([uidFiche]).then(r=>{
+      cacheAvatarsEleves[uidFiche]=r[uidFiche]||null;
+      if(jeton===jetonFiche) appliquerAvatar(elAvatarFiche,cacheAvatarsEleves[uidFiche]);
+    });
+  }
   document.getElementById('ensEleveSous').textContent='identifiant : '+eleve.identifiant;
   const liste=document.getElementById('ensEleveListe');
   liste.innerHTML='<div class="progres-msg">⏳ Chargement…</div>';
@@ -5294,6 +5369,7 @@ function nav(screenNum, dir='fwd') {
   const s=document.getElementById('s'+screenNum);
   s.classList.add('active', dir==='back'?'anim-back':'anim-fwd');
   window.scrollTo(0,0);
+  if(typeof fermerMenuAvatar==='function') fermerMenuAvatar();
 }
 // ================================================================
 // SCREEN 1 → 2 : select category
