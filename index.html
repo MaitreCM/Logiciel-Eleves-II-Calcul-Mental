@@ -787,11 +787,11 @@ body.cat-proport { --clr-active: #0652dd; }
 /* ===== MENU AVATAR + TITRE ACCUEIL + AVATARS ENSEIGNANT ===== */
 #s1,#s2,#s3,#s6 { position:relative; }
 .app-title-xl { font-size:clamp(2.6rem,12vw,3.9rem); line-height:1.05; margin:6px 0 4px; }
-.avatar-menu { position:fixed; z-index:240; display:none; min-width:210px; overflow-y:auto; background:var(--card); border-radius:16px; padding:6px; box-shadow:0 8px 28px rgba(0,0,0,0.5); border:2px solid var(--card2); }
+.avatar-menu { position:fixed; z-index:240; display:none; min-width:224px; max-width:calc(100vw - 16px); overflow-y:auto; background:var(--card); border-radius:16px; padding:6px; box-shadow:0 8px 28px rgba(0,0,0,0.5); border:2px solid var(--card2); }
 .avatar-menu.open { display:block; }
 .avatar-menu button { display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:none; border:none; border-radius:10px; padding:11px 12px; font-family:'Nunito',sans-serif; font-size:0.92rem; font-weight:800; color:var(--text); cursor:pointer; }
 .avatar-menu button:hover { background:var(--card2); }
-.avatar-grand { width:min(200px,45vw); height:min(200px,45vw); font-size:4rem; margin:8px auto 8px; border-width:4px; border-color:var(--surface); }
+.avatar-grand { width:min(200px,62vw); height:min(200px,62vw); font-size:4rem; margin:8px auto 8px; border-width:4px; border-color:var(--surface); }
 .avatar-ens { width:44px; height:44px; font-size:1.4rem; border-width:2px; box-shadow:none; flex-shrink:0; }
 </style>
 </head>
