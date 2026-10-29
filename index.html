@@ -4423,7 +4423,15 @@ function menuAvatarAction(a){
   else if(a==='progres') openProgres();
   else if(a==='deconnexion') deconnecterEleve();
 }
-document.addEventListener('click',function(e){ if(!e.target.closest('#avatarMenu')) fermerMenuAvatar(); });
+// Menu ouvert : un clic à côté ferme le menu et RIEN d'autre (le clic est intercepté avant d'atteindre
+// le bouton qui se trouve derrière). Le menu lui-même et le bouton avatar gardent leur comportement.
+document.addEventListener('click',function(e){
+  const m=document.getElementById('avatarMenu');
+  if(!m||!m.classList.contains('open')) return;
+  if(e.target.closest('#avatarMenu')||e.target.closest('.avatar-btn')) return;
+  e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+  fermerMenuAvatar();
+},true);
 window.addEventListener('scroll',fermerMenuAvatar,{passive:true});
 document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ fermerMenuAvatar(); fermerChoixAvatar(); } });
 
