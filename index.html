@@ -793,6 +793,12 @@ body.cat-proport { --clr-active: #0652dd; }
 .avatar-menu button:hover { background:var(--card2); }
 .avatar-grand { width:min(200px,62vw); height:min(200px,62vw); font-size:4rem; margin:8px auto 8px; border-width:4px; border-color:var(--surface); }
 .avatar-ens { width:44px; height:44px; font-size:1.4rem; border-width:2px; box-shadow:none; flex-shrink:0; }
+
+/* ===== GENRE (choix enseignant) ===== */
+.genre-choix { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+.genre-btn { padding:5px 11px; border-radius:999px; border:2px solid var(--card2); background:none; color:var(--muted); font-family:'Nunito',sans-serif; font-weight:800; font-size:0.74rem; cursor:pointer; }
+.genre-btn:hover { border-color:var(--accent2); }
+.genre-btn.actif { border-color:var(--accent2); background:var(--surface); color:var(--text); }
 </style>
 </head>
 <body>
@@ -1080,7 +1086,7 @@ if(typeof module !== 'undefined' && module.exports){
   // --- Élèves (gérés par l'enseignant connecté) ---
   // L'identifiant de l'élève est son prénom (tel que l'enseignant le tape, espaces/tirets/casse compris).
   // Retourne { uid, identifiant, motDePasse }. Erreur 'identifiant-pris' si déjà utilisé dans tout le projet.
-  async function creerEleve(classeId, prenomBrut, motDePasseSaisi) {
+  async function creerEleve(classeId, prenomBrut, motDePasseSaisi, genre) {
     const v = verifierIdentifiant(prenomBrut);
     if (!v.ok) throw erreurCompte('identifiant-invalide', v.erreur);
     const mdpSaisi = (motDePasseSaisi == null || String(motDePasseSaisi).trim() === '') ? genererMotDePasse() : motDePasseSaisi;
@@ -1091,7 +1097,7 @@ if(typeof module !== 'undefined' && module.exports){
     const uid = utilisateur.uid;
     try {
       const maintenant = new Date().toISOString();
-      await setDoc(doc(db, 'profilsEleves', uid), { role: 'eleve', identifiant: v.identifiant, classeId, enseignantUid, creeLe: maintenant });
+      await setDoc(doc(db, 'profilsEleves', uid), { role: 'eleve', identifiant: v.identifiant, classeId, enseignantUid, creeLe: maintenant, ...((genre === 'F' || genre === 'G' || genre === 'I') ? { genre } : {}) });
       await setDoc(doc(db, 'motsDePasse', uid), { role: 'eleve', identifiant: v.identifiant, mdp, mdpEnAttente: null, classeId, enseignantUid, creeLe: maintenant });
       await setDoc(doc(db, 'classes', classeId, 'eleves', uid), { prenom: v.identifiant, identifiant: v.identifiant, uid, creeLe: maintenant });
     } catch (e) {
@@ -1127,6 +1133,27 @@ if(typeof module !== 'undefined' && module.exports){
       } catch (e) { /* ignoré : rond neutre affiché */ }
     }));
     return res;
+  }
+
+  // Profils des élèves (avatar + genre) : { uid: { avatar, genre } }. Absent = non renseigné / illisible.
+  async function lireProfilsEleves(uids) {
+    const res = {};
+    await Promise.all(uids.map(async uid => {
+      try {
+        const snap = await getDoc(doc(db, 'profilsEleves', uid));
+        if (snap.exists()) {
+          const d = snap.data();
+          res[uid] = { avatar: typeof d.avatar === 'string' ? d.avatar : null, genre: (d.genre === 'F' || d.genre === 'G' || d.genre === 'I') ? d.genre : null };
+        }
+      } catch (e) { /* ignoré */ }
+    }));
+    return res;
+  }
+
+  // L'enseignant classe un élève : 'F' (fille), 'G' (garçon) ou 'I' (indéfini). Mise à jour ciblée du seul champ « genre ».
+  async function definirGenreEleve(uid, genre) {
+    if (genre !== 'F' && genre !== 'G' && genre !== 'I') throw new Error('genre invalide');
+    await updateDoc(doc(db, 'profilsEleves', uid), { genre });
   }
 
   // --- Classes et élèves : listes ---
@@ -1208,7 +1235,7 @@ if(typeof module !== 'undefined' && module.exports){
     auth, db, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs,
     connecter, deconnecter, envoyerReinitialisationMotDePasse, determinerRole,
     creerEnseignant, listerEnseignants, changerMotDePasse,
-    creerClasse, listerClasses, listerEleves, creerEleve, lireMotsDePasseEleves, lireAvatarsEleves,
+    creerClasse, listerClasses, listerEleves, creerEleve, lireMotsDePasseEleves, lireAvatarsEleves, lireProfilsEleves, definirGenreEleve,
     supprimerEleveComplet, supprimerClasseComplete, supprimerEnseignantComplet,
   };
 
@@ -3885,7 +3912,10 @@ window.MoteurAdaptatif = {
      ÉCRAN ENSEIGNANT : GESTION D'UNE CLASSE (liste des élèves)
 ===================================================== -->
 <div class="screen" id="sEnsClasse">
-  <div class="app-title" style="margin-top:40px;" id="ensClasseTitre">Classe</div>
+  <div style="width:100%;max-width:480px;margin:0 auto;">
+    <button class="btn btn-secondary" style="padding:9px 16px;font-size:0.85rem;" onclick="nav('EnsAdmin')">← Retour aux classes</button>
+  </div>
+  <div class="app-title" style="margin-top:18px;" id="ensClasseTitre">Classe</div>
   <div class="login-box" style="margin-top:24px;max-width:480px;">
     <div id="listeEleves"></div>
     <div class="admin-statut" id="ensClasseStatut"></div>
@@ -3896,11 +3926,18 @@ window.MoteurAdaptatif = {
         <input type="text" class="login-field" id="nouvelElevePass" placeholder="Mot de passe (ex : 45FG32)" autocomplete="off" autocorrect="off" spellcheck="false" style="font-family:monospace;letter-spacing:1px;">
         <button class="btn btn-secondary" style="padding:13px 16px;" title="Générer un autre mot de passe" onclick="ensRegenererMotDePasseEleve()">🎲</button>
       </div>
+      <div style="margin:2px 0 12px;">
+        <div style="font-size:0.8rem;color:var(--muted);font-weight:700;">Fille ou garçon (pour proposer les bons avatars)</div>
+        <div class="genre-choix" id="nouvelEleveGenre">
+          <button type="button" class="genre-btn" data-genre="F" onclick="ensChoisirGenreNouvel('F')">♀ Fille</button>
+          <button type="button" class="genre-btn" data-genre="G" onclick="ensChoisirGenreNouvel('G')">♂ Garçon</button>
+          <button type="button" class="genre-btn actif" data-genre="I" onclick="ensChoisirGenreNouvel('I')">Indéfini</button>
+        </div>
+      </div>
       <div class="login-error" id="ensClasseErreur"></div>
       <div class="admin-statut" id="ensClasseSucces" style="color:var(--accent3);"></div>
       <button class="btn btn-primary" onclick="ajouterNouvelEleve()">+ Ajouter l'élève</button>
     </div>
-    <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="nav('EnsAdmin')">← Retour aux classes</button>
   </div>
 </div>
 
@@ -3908,11 +3945,13 @@ window.MoteurAdaptatif = {
      ÉCRAN ENSEIGNANT : RÉGLAGES DU MOTEUR ADAPTATIF
 ===================================================== -->
 <div class="screen" id="sEnsReglages">
-  <div class="app-title" style="margin-top:40px;font-size:1.8rem;">⚙️ Réglages</div>
+  <div style="width:100%;max-width:520px;margin:0 auto;">
+    <button class="btn btn-secondary" style="padding:9px 16px;font-size:0.85rem;" onclick="quitterReglages()">← Retour aux classes</button>
+  </div>
+  <div class="app-title" style="margin-top:18px;font-size:1.8rem;">⚙️ Réglages</div>
   <div class="login-box" style="margin-top:12px;max-width:520px;">
     <div class="progres-legende">Ces réglages valent pour toutes tes classes. Un champ laissé vide reprend la valeur du niveau au-dessus : compétence → catégorie → général.</div>
     <div id="regCorps"></div>
-    <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="quitterReglages()">← Retour aux classes</button>
   </div>
 </div>
 
@@ -4347,6 +4386,7 @@ async function refuserEleveRetire(){
 // l'élève d'un ordinateur à l'autre. Si l'écriture en ligne est refusée : silencieux.
 // ================================================================
 let avatarActuel=null;   // identifiant ("F1", "G4"…) ou null
+let genreEleve='I';      // défini par l'enseignant : F, G ou I (indéfini = tous les avatars)
 let avatarEdition=null;  // choix en cours dans la fenêtre
 
 function avatarValide(id){ return typeof id==='string' && Object.prototype.hasOwnProperty.call(AVATAR_IMGS,id); }
@@ -4367,7 +4407,7 @@ function dessinerChoixAvatar(){
   const liste=document.getElementById('avatarListe');
   liste.innerHTML='';
   const ids=Object.keys(AVATAR_IMGS);
-  const groupes=[['F','Filles'],['G','Garçons']].map(([p,t])=>[t,ids.filter(k=>k.charAt(0)===p)]).filter(g=>g[1].length);
+  const groupes=[['F','Filles'],['G','Garçons']].filter(([p])=>genreEleve==='I'||genreEleve===p).map(([p,t])=>[t,ids.filter(k=>k.charAt(0)===p)]).filter(g=>g[1].length);
   groupes.forEach(([titre,groupe])=>{
     if(groupes.length>1){ const h=document.createElement('div'); h.className='avatar-groupe'; h.textContent=titre; liste.appendChild(h); }
     const grille=document.createElement('div'); grille.className='avatar-grille';
@@ -4435,6 +4475,35 @@ document.addEventListener('click',function(e){
 window.addEventListener('scroll',fermerMenuAvatar,{passive:true});
 document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ fermerMenuAvatar(); fermerChoixAvatar(); } });
 
+// ---- Genre des élèves : F (fille) / G (garçon) / I (indéfini = tous les avatars) ----
+const cacheGenresEleves={}; // uid -> 'F' | 'G' | 'I'
+const GENRES_CHOIX=[['F','♀ Fille'],['G','♂ Garçon'],['I','Indéfini']];
+let genreNouvelEleve='I';
+function genreChoixHtml(g){
+  g=(g==='F'||g==='G')?g:'I';
+  return '<div class="genre-choix">'+GENRES_CHOIX.map(([k,l])=>'<button type="button" class="genre-btn'+(k===g?' actif':'')+'" data-genre="'+k+'">'+l+'</button>').join('')+'</div>';
+}
+function ensChoisirGenreNouvel(g){
+  genreNouvelEleve=g;
+  document.querySelectorAll('#nouvelEleveGenre .genre-btn').forEach(b=>b.classList.toggle('actif',b.dataset.genre===g));
+}
+async function ensDefinirGenre(uid,genre,div){
+  const avant=cacheGenresEleves[uid]||'I';
+  if(genre===avant) return;
+  const maj=g=>div.querySelectorAll('.genre-btn').forEach(b=>b.classList.toggle('actif',b.dataset.genre===g));
+  const statut=document.getElementById('ensClasseStatut');
+  maj(genre); cacheGenresEleves[uid]=genre;
+  try{
+    await window.FirebaseApp.definirGenreEleve(uid,genre);
+    statut.textContent='';
+  }catch(e){
+    console.error('Erreur definirGenreEleve:',e);
+    maj(avant); cacheGenresEleves[uid]=avant;
+    statut.style.color='var(--accent1)';
+    statut.textContent='⚠️ Le choix n\'a pas pu être enregistré ('+messageErreurCompte(e)+').';
+  }
+}
+
 // ---- Avatars vus par l'enseignant ----
 const cacheAvatarsEleves={}; // uid -> identifiant d'avatar (ou null)
 function avatarHtmlEns(id){
@@ -4444,6 +4513,7 @@ function avatarHtmlEns(id){
 // Appelée à la connexion : cache local d'abord (instantané), puis version en ligne.
 async function initAvatar(user){
   avatarActuel=avatarLireLocal(user.uid);
+  try{ const g0=localStorage.getItem('cm_genre_'+user.uid); genreEleve=(g0==='F'||g0==='G')?g0:'I'; }catch(e){ genreEleve='I'; }
   majAvatarAccueil();
   let enLigneLu=false;
   try{
@@ -4451,6 +4521,9 @@ async function initAvatar(user){
     const snap=await F.getDoc(F.doc(F.db,'profilsEleves',user.uid));
     enLigneLu=true;
     if(!eleveConnecte||eleveConnecte.uid!==user.uid) return; // déconnecté entre-temps
+    const g=snap.exists()?snap.data().genre:null;
+    genreEleve=(g==='F'||g==='G')?g:'I';
+    try{ localStorage.setItem('cm_genre_'+user.uid,genreEleve); }catch(e){}
     const a=snap.exists()?snap.data().avatar:null;
     if(avatarValide(a)){ avatarActuel=a; avatarEcrireLocal(user.uid,a); majAvatarAccueil(); }
   }catch(e){ console.warn('Avatar en ligne illisible :',e); }
@@ -4763,8 +4836,13 @@ async function rafraichirListeEleves() {
   try {
     eleves = (await window.FirebaseApp.listerEleves(classeOuverte.id)).slice().sort((a, b) => String(a.prenom).localeCompare(String(b.prenom), 'fr'));
     mdps = await window.FirebaseApp.lireMotsDePasseEleves(eleves.map(e => e.uid || e.id));
-    avatars = await window.FirebaseApp.lireAvatarsEleves(eleves.map(e => e.uid || e.id));
-    eleves.forEach(e => { const u = e.uid || e.id; cacheAvatarsEleves[u] = avatars[u] || null; });
+    const profils = await window.FirebaseApp.lireProfilsEleves(eleves.map(e => e.uid || e.id));
+    eleves.forEach(e => {
+      const u = e.uid || e.id, p = profils[u] || {};
+      avatars[u] = p.avatar || null;
+      cacheAvatarsEleves[u] = p.avatar || null;
+      cacheGenresEleves[u] = p.genre || 'I';
+    });
   } catch (e) {
     console.error('Erreur rafraichirListeEleves:', e);
     conteneur.innerHTML = '<div class="admin-empty">Erreur de chargement (' + echapHtml(e.code || e.message || e) + ').</div>';
@@ -4782,8 +4860,10 @@ async function rafraichirListeEleves() {
     div.className = 'admin-list-item admin-ens';
     div.innerHTML = `${avatarHtmlEns(avatars[uid])}<div class="corps"><div class="nom">${echapHtml(e.prenom)}</div>
         <div class="detail">Mot de passe : <span class="mdp">${m ? '••••••' : 'introuvable'}</span>${m ? ' <button class="voir" title="Afficher / masquer">👁</button>' : ''}</div>
+        ${genreChoixHtml(cacheGenresEleves[uid])}
         ${m && m.changementIncomplet ? '<div class="alerte">⚠️ Un changement de mot de passe est resté incomplet : refais-le.</div>' : ''}</div>
       <div class="actions"><button class="changer" title="Changer le mot de passe">🔑</button><button class="supprimer" title="Retirer l\'élève">✕</button></div>`;
+    div.querySelectorAll('.genre-btn').forEach(b => { b.onclick = (ev) => { ev.stopPropagation(); ensDefinirGenre(uid, b.dataset.genre, div); }; });
     const spanMdp = div.querySelector('.mdp');
     const voir = div.querySelector('.voir');
     if (voir) voir.onclick = (ev) => { ev.stopPropagation(); spanMdp.textContent = spanMdp.textContent === '••••••' ? m.mdp : '••••••'; };
@@ -4824,9 +4904,10 @@ async function ajouterNouvelEleve() {
   if (!motDePasseValide(mdp)) { erreurEl.textContent = 'Mot de passe : 2 chiffres, 2 lettres, 2 chiffres (ex. 45FG32).'; return; }
   ensClasseOccupe = true;
   try {
-    const r = await window.FirebaseApp.creerEleve(classeOuverte.id, prenomBrut, mdp);
+    const r = await window.FirebaseApp.creerEleve(classeOuverte.id, prenomBrut, mdp, genreNouvelEleve);
     succesEl.textContent = '✅ ' + r.identifiant + ' ajouté(e) — mot de passe : ' + r.motDePasse;
     document.getElementById('nouvelEleveId').value = '';
+    ensChoisirGenreNouvel('I');
     ensRegenererMotDePasseEleve();
     rafraichirListeEleves();
   } catch (e) {
