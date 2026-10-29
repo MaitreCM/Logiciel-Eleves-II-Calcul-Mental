@@ -799,9 +799,32 @@ body.cat-proport { --clr-active: #0652dd; }
 .genre-btn { padding:5px 11px; border-radius:999px; border:2px solid var(--card2); background:none; color:var(--muted); font-family:'Nunito',sans-serif; font-weight:800; font-size:0.74rem; cursor:pointer; }
 .genre-btn:hover { border-color:var(--accent2); }
 .genre-btn.actif { border-color:var(--accent2); background:var(--surface); color:var(--text); }
+
+/* ===== LOGO + TITRE (boulier dessiné, titre dégradé épaissi) ===== */
+.logo-lockup { display:flex; align-items:center; gap:clamp(6px,2vw,12px); min-width:0; }
+.logo-centre { justify-content:center; }
+.logo-abacus { width:clamp(44px,12vw,60px); height:auto; flex-shrink:0; display:block; }
+.logo-abacus .cadre { fill:var(--card2); stroke:var(--muted); stroke-width:4; }
+.logo-abacus .tige { stroke:var(--muted); stroke-width:2; }
+.logo-abacus .r { fill:var(--accent1); } .logo-abacus .y { fill:var(--accent2); }
+.logo-abacus .g { fill:var(--accent3); } .logo-abacus .b { fill:var(--accent4); }
+.logo-titre { width:clamp(120px,34vw,170px); height:auto; display:block; min-width:0; }
+.logo-titre text { font-family:'Fredoka One',cursive; font-size:34px; fill:url(#gradTitre); stroke:url(#gradTitre); stroke-width:2.6px; stroke-linejoin:round; }
+.logo-grand .logo-abacus { width:clamp(56px,16vw,84px); }
+.logo-grand .logo-titre { width:clamp(150px,44vw,230px); }
+.app-header { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:2px 0 4px; }
+.app-header .avatar-btn { position:static; flex-shrink:0; }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="gradTitre" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="132" y2="70">
+      <stop offset="0" stop-color="#ff6b6b"/><stop offset="0.35" stop-color="#ffd93d"/>
+      <stop offset="0.7" stop-color="#6bcb77"/><stop offset="1" stop-color="#4d96ff"/>
+    </linearGradient>
+  </defs>
+</svg>
 
 <!-- ====================================================
      FIREBASE — initialisation + connexion élève
@@ -3850,8 +3873,21 @@ window.MoteurAdaptatif = {
      Un identifiant contenant @ est une vraie adresse e-mail (administrateur).
 ===================================================== -->
 <div class="screen active" id="s0">
-  <div class="app-title" style="margin-top:64px;">🧮 Calcul Mental</div>
-  <div class="login-box" style="margin-top:40px;">
+  <div class="logo-lockup logo-centre logo-grand" style="margin-top:44px;">
+    <svg class="logo-abacus" viewBox="0 0 120 100" role="img" aria-label="Boulier">
+      <rect class="cadre" x="4" y="6" width="112" height="88" rx="14"/>
+      <line class="tige" x1="10" y1="26" x2="110" y2="26"/><line class="tige" x1="10" y1="44" x2="110" y2="44"/>
+      <line class="tige" x1="10" y1="62" x2="110" y2="62"/><line class="tige" x1="10" y1="80" x2="110" y2="80"/>
+      <g class="r"><circle cx="22" cy="26" r="8"/><circle cx="38" cy="26" r="8"/><circle cx="54" cy="26" r="8"/><circle cx="88" cy="26" r="8"/><circle cx="104" cy="26" r="8"/></g>
+      <g class="y"><circle cx="22" cy="44" r="8"/><circle cx="38" cy="44" r="8"/><circle cx="72" cy="44" r="8"/><circle cx="88" cy="44" r="8"/><circle cx="104" cy="44" r="8"/></g>
+      <g class="g"><circle cx="22" cy="62" r="8"/><circle cx="38" cy="62" r="8"/><circle cx="54" cy="62" r="8"/><circle cx="70" cy="62" r="8"/><circle cx="104" cy="62" r="8"/></g>
+      <g class="b"><circle cx="22" cy="80" r="8"/><circle cx="56" cy="80" r="8"/><circle cx="72" cy="80" r="8"/><circle cx="88" cy="80" r="8"/><circle cx="104" cy="80" r="8"/></g>
+    </svg>
+    <svg class="logo-titre" viewBox="0 0 132 70" role="img" aria-label="Calcul Mental">
+      <text x="2" y="31">Calcul</text><text x="2" y="64">Mental</text>
+    </svg>
+  </div>
+  <div class="login-box" style="margin-top:34px;">
     <input type="text" class="login-field" id="loginIdentifiant" placeholder="Ton identifiant" autocomplete="off" autocorrect="off" spellcheck="false" oninput="majLienOubli()" onkeydown="if(event.key==='Enter')document.getElementById('loginMotDePasse').focus()">
     <div class="pwd-wrap">
       <input type="password" class="login-field" id="loginMotDePasse" placeholder="Ton mot de passe" autocomplete="off" onkeydown="if(event.key==='Enter')tenterConnexion()">
@@ -3985,12 +4021,27 @@ window.MoteurAdaptatif = {
      ÉCRAN 1 : CHOIX DE L'OPÉRATION
 ===================================================== -->
 <div class="screen" id="s1" style="position:relative;">
-  <button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
-    <span class="avatar-rond">🙂</span>
-  </button>
-  <div class="app-title app-title-xl">🧮 Calcul<br>Mental</div>
+  <div class="app-header">
+    <div class="logo-lockup">
+    <svg class="logo-abacus" viewBox="0 0 120 100" role="img" aria-label="Boulier">
+      <rect class="cadre" x="4" y="6" width="112" height="88" rx="14"/>
+      <line class="tige" x1="10" y1="26" x2="110" y2="26"/><line class="tige" x1="10" y1="44" x2="110" y2="44"/>
+      <line class="tige" x1="10" y1="62" x2="110" y2="62"/><line class="tige" x1="10" y1="80" x2="110" y2="80"/>
+      <g class="r"><circle cx="22" cy="26" r="8"/><circle cx="38" cy="26" r="8"/><circle cx="54" cy="26" r="8"/><circle cx="88" cy="26" r="8"/><circle cx="104" cy="26" r="8"/></g>
+      <g class="y"><circle cx="22" cy="44" r="8"/><circle cx="38" cy="44" r="8"/><circle cx="72" cy="44" r="8"/><circle cx="88" cy="44" r="8"/><circle cx="104" cy="44" r="8"/></g>
+      <g class="g"><circle cx="22" cy="62" r="8"/><circle cx="38" cy="62" r="8"/><circle cx="54" cy="62" r="8"/><circle cx="70" cy="62" r="8"/><circle cx="104" cy="62" r="8"/></g>
+      <g class="b"><circle cx="22" cy="80" r="8"/><circle cx="56" cy="80" r="8"/><circle cx="72" cy="80" r="8"/><circle cx="88" cy="80" r="8"/><circle cx="104" cy="80" r="8"/></g>
+    </svg>
+    <svg class="logo-titre" viewBox="0 0 132 70" role="img" aria-label="Calcul Mental">
+      <text x="2" y="31">Calcul</text><text x="2" y="64">Mental</text>
+    </svg>
+    </div>
+    <button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
+      <span class="avatar-rond">🙂</span>
+    </button>
+  </div>
 
-  <div class="cat-grid" style="margin-top: 22px;">
+  <div class="cat-grid" style="margin-top: 16px;">
     <div class="cat-card" data-cat="add" onclick="selectCat('add')">
       <span class="cat-icon">➕</span>
       <div class="cat-name">Addition</div>
