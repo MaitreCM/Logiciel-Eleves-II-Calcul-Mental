@@ -6966,16 +6966,15 @@ function dessinerChoixNiveau(){
   txt.classList.toggle('entrainement',ent);
   if(!pret) txt.textContent='Chargement de ton niveau…';
   else if(messageNiveauTemp) txt.textContent=messageNiveauTemp;
-  else if(ent) txt.textContent='💪 Entraînement : '+listeNiveauxTexte(niveauxEffectifs())+'. Ça ne compte pas pour tes étoiles.';
-  else if(palier>1) txt.textContent='Niveau '+palier+' : tu progresses normalement. Touche une étoile jaune pour t\'entraîner sur un niveau déjà réussi.';
-  else txt.textContent='Niveau 1 : tu progresses normalement. Quand tu auras réussi un niveau, tu pourras t\'y entraîner.';
+  else if(ent) txt.textContent='💪 Entraînement : '+listeNiveauxTexte(niveauxEffectifs())+'. Tes résultats ne sont pas pris en compte pour ta progression.';
+  else txt.textContent='';
   majLibelleBoutonDemarrer();
 }
 function basculerNiveau(i){
   if(!niveauS3.pret||i<1||i>niveauS3.palier) return;
   const aBas=[...niveauxChoisis].some(l=>l<niveauS3.palier);
   if(i===niveauS3.palier&&!aBas){
-    messageNiveauTemp="C'est ton niveau actuel : tu y joues quand tu ne choisis aucune étoile jaune.";
+    messageNiveauTemp="C'est ton niveau actuel";
     dessinerChoixNiveau(); return;
   }
   messageNiveauTemp='';
@@ -6988,13 +6987,6 @@ function afficherAideNiveaux(){
     texte:"Si tu choisis de faire des calculs de niveaux déjà réussis, ta séance de calcul sera une séance d'entraînement qui ne comptera pas pour la progression de tes résultats.",
     boutons:[{label:"J'ai compris", primaire:true, action:(fermer)=>fermer()}]});
 }
-function aideNiveauxSiPremiereFois(){
-  if(niveauS3.palier<=1) return;
-  const uid=eleveConnecte&&eleveConnecte.uid; if(!uid) return;
-  const cle='cm_aide_niveaux_'+uid;
-  try{ if(localStorage.getItem(cle)) return; localStorage.setItem(cle,'1'); }catch(e){ return; }
-  setTimeout(()=>{ const s3=document.getElementById('s3'); if(s3&&s3.classList.contains('active')) afficherAideNiveaux(); },450);
-}
 // Appelée à chaque affichage de l'écran 3 (reset = arrivée depuis le choix du type ; sinon retour d'une séance : on garde la sélection)
 function preparerChoixNiveau(reset){
   if(reset) niveauxChoisis=new Set();
@@ -7003,12 +6995,11 @@ function preparerChoixNiveau(reset){
   const p=progressionsEleve?(progressionsEleve[selTypeId]||{palier:1,compteur:0}):null;
   niveauS3=p?{palier:p.palier,compteur:p.compteur,pret:true}:{palier:1,compteur:0,pret:false};
   dessinerChoixNiveau();
-  if(p){ if(reset) aideNiveauxSiPremiereFois(); return; }
+  if(p) return;
   chargerProgression(selTypeId).then(r=>{
     if(jeton!==jetonNiveauS3||!r||!r.etat) return;
     niveauS3={palier:r.etat.palier,compteur:r.etat.compteur,pret:true};
     dessinerChoixNiveau();
-    if(reset) aideNiveauxSiPremiereFois();
   });
 }
 // Niveau de la prochaine question : le palier de l'élève, ou en entraînement un niveau tiré à tour de rôle (mélange équilibré)
@@ -7707,7 +7698,7 @@ function togglePause(){
 function quitGame(){
   suspendreChrono();
   afficherDialogue({icone:'🚪', titre:'Quitter la partie ?',
-    texte: modeEntrainement ? "Tu t'entraînes : cette séance ne compte pas pour tes étoiles." : sessionLog.length>0 ? 'Tes réponses déjà données seront enregistrées.' : "Tu n'as pas encore répondu à un calcul.",
+    texte: modeEntrainement ? "Cette séance ne comptera pas pour tes étoiles." : sessionLog.length>0 ? 'Tes réponses déjà données seront enregistrées.' : "",
     boutons:[
       {label:'Continuer', action:(fermer)=>{fermer();reprendreChrono();}},
       {label:'Quitter', primaire:true, action:(fermer,btn)=>{partieActive=false;quitterEtSauvegarder(fermer,btn);}}
