@@ -812,8 +812,9 @@ body.cat-proport { --clr-active: #0652dd; }
 .logo-titre text { font-family:'Fredoka One',cursive; font-size:34px; fill:url(#gradTitre); }
 .logo-grand .logo-abacus { width:clamp(56px,16vw,84px); }
 .logo-grand .logo-titre { width:clamp(150px,44vw,230px); }
-.app-header { display:flex; align-items:center; justify-content:space-between; gap:26px; margin:2px 0 4px; }
-.app-header .logo-lockup { flex:0 1 auto; }
+.app-header { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; column-gap:10px; margin:2px 0 4px; }
+.app-header .logo-abacus { justify-self:start; }
+.app-header .avatar-btn { justify-self:end; }
 .app-header .logo-titre { width:clamp(150px,44vw,210px); }
 .app-header .avatar-btn { position:static; flex-shrink:0; }
 </style>
@@ -3886,7 +3887,7 @@ window.MoteurAdaptatif = {
       <g class="b"><circle cx="22" cy="80" r="8"/><circle cx="56" cy="80" r="8"/><circle cx="72" cy="80" r="8"/><circle cx="88" cy="80" r="8"/><circle cx="104" cy="80" r="8"/></g>
     </svg>
     <svg class="logo-titre" viewBox="0 0 132 70" role="img" aria-label="Calcul Mental">
-      <text x="2" y="31">Calcul</text><text x="2" y="64">Mental</text>
+      <text x="66" y="31" text-anchor="middle">Calcul</text><text x="66" y="64" text-anchor="middle">Mental</text>
     </svg>
   </div>
   <div class="login-box" style="margin-top:34px;">
@@ -4024,7 +4025,6 @@ window.MoteurAdaptatif = {
 ===================================================== -->
 <div class="screen" id="s1" style="position:relative;">
   <div class="app-header">
-    <div class="logo-lockup">
     <svg class="logo-abacus" viewBox="0 0 120 100" role="img" aria-label="Boulier">
       <rect class="cadre" x="4" y="6" width="112" height="88" rx="14"/>
       <line class="tige" x1="10" y1="26" x2="110" y2="26"/><line class="tige" x1="10" y1="44" x2="110" y2="44"/>
@@ -4035,9 +4035,8 @@ window.MoteurAdaptatif = {
       <g class="b"><circle cx="22" cy="80" r="8"/><circle cx="56" cy="80" r="8"/><circle cx="72" cy="80" r="8"/><circle cx="88" cy="80" r="8"/><circle cx="104" cy="80" r="8"/></g>
     </svg>
     <svg class="logo-titre" viewBox="0 0 132 70" role="img" aria-label="Calcul Mental">
-      <text x="2" y="31">Calcul</text><text x="2" y="64">Mental</text>
+      <text x="66" y="31" text-anchor="middle">Calcul</text><text x="66" y="64" text-anchor="middle">Mental</text>
     </svg>
-    </div>
     <button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
       <span class="avatar-rond">🙂</span>
     </button>
