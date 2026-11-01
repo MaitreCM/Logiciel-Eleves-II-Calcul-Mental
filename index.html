@@ -6974,7 +6974,7 @@ function basculerNiveau(i){
   if(!niveauS3.pret||i<1||i>niveauS3.palier) return;
   const aBas=[...niveauxChoisis].some(l=>l<niveauS3.palier);
   if(i===niveauS3.palier&&!aBas){
-    messageNiveauTemp="C'est ton niveau actuel";
+    messageNiveauTemp="C'est ton niveau actuel : en le travaillant, tu progresses dans tes étoiles.";
     dessinerChoixNiveau(); return;
   }
   messageNiveauTemp='';
