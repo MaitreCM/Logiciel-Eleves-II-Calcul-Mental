@@ -817,6 +817,21 @@ body.cat-proport { --clr-active: #0652dd; }
 .app-header .avatar-btn { justify-self:end; }
 .app-header .logo-titre { width:clamp(150px,44vw,210px); }
 .app-header .avatar-btn { position:static; flex-shrink:0; }
+
+/* ===== CHOIX DU NIVEAU (étoiles) ===== */
+.niveau-etoiles { display:flex; gap:6px; justify-content:center; margin:4px 0 10px; }
+.niv-etoile { flex:1 1 0; max-width:56px; min-width:0; background:none; border:none; padding:0; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px; font-family:'Nunito',sans-serif; color:var(--muted); font-size:0.72rem; font-weight:800; }
+.niv-rond { width:100%; aspect-ratio:1; border-radius:50%; border:3px solid transparent; display:flex; align-items:center; justify-content:center; padding:14%; box-sizing:border-box; position:relative; transition:transform .12s; }
+.niv-rond svg { width:100%; height:100%; display:block; }
+.niv-etoile:not(:disabled):hover .niv-rond { transform:scale(1.08); }
+.niv-etoile.courant .niv-rond { border-color:var(--text); }
+.niv-etoile.choisi .niv-rond { background:rgba(107,203,119,0.25); box-shadow:0 0 0 3px var(--accent3); }
+.niv-etoile.choisi .niv-rond::after { content:'✓'; position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%; background:var(--accent3); color:#0f0e17; font-size:0.7rem; display:flex; align-items:center; justify-content:center; }
+.niv-etoile.verrouille { opacity:0.4; cursor:default; }
+.niv-etoile:disabled { cursor:default; }
+.niveau-texte { font-size:0.85rem; text-align:center; line-height:1.4; min-height:2.8em; color:var(--text); }
+.niveau-texte.entrainement { color:var(--accent3); font-weight:700; }
+.niv-aide { margin-left:6px; width:20px; height:20px; border-radius:50%; border:none; background:var(--surface); color:var(--text); font-family:'Nunito',sans-serif; font-weight:800; font-size:0.75rem; cursor:pointer; vertical-align:middle; }
 </style>
 </head>
 <body>
@@ -4134,17 +4149,25 @@ window.MoteurAdaptatif = {
     <span class="avatar-rond">🙂</span>
   </button>
   <button class="btn-back" onclick="goBackFromS3()">← Retour</button>
-  <div class="app-title" style="font-size:1.5rem; margin-bottom:16px;">Combien de questions ?</div>
+  <div class="app-title" style="font-size:1.5rem; margin-bottom:16px;">Combien de calculs ?</div>
 
   <div class="settings-box">
     <div class="settings-row">
-      <div class="settings-label">📝 Nombre de questions</div>
+      <div class="settings-label">📝 Nombre de calculs</div>
       <div class="chip-row" id="nbChips">
         <button class="chip-btn" onclick="setNbQ(5)">5</button>
         <button class="chip-btn selected" onclick="setNbQ(10)">10</button>
         <button class="chip-btn" onclick="setNbQ(20)">20</button>
         <button class="chip-btn" onclick="setNbQ(30)">30</button>
       </div>
+    </div>
+  </div>
+
+  <div class="settings-box" id="niveauBox">
+    <div class="settings-row">
+      <div class="settings-label">⭐ Niveau des calculs<button type="button" class="niv-aide" onclick="afficherAideNiveaux()" aria-label="Comment ça marche ?">?</button></div>
+      <div class="niveau-etoiles" id="niveauEtoiles"></div>
+      <div class="niveau-texte" id="niveauTexte"></div>
     </div>
   </div>
 
@@ -4204,7 +4227,7 @@ window.MoteurAdaptatif = {
       <!-- Question label -->
       <text id="maisonQLabel" x="130" y="10" text-anchor="middle" dominant-baseline="auto"
         font-family="Nunito,sans-serif" font-size="11" font-weight="800" fill="#a7a9be"
-        letter-spacing="2">QUESTION 1</text>
+        letter-spacing="2">CALCUL 1</text>
     </svg>
   </div>
 
@@ -5511,6 +5534,7 @@ function nav(screenNum, dir='fwd') {
   s.classList.add('active', dir==='back'?'anim-back':'anim-fwd');
   window.scrollTo(0,0);
   if(typeof fermerMenuAvatar==='function') fermerMenuAvatar();
+  if(screenNum===3&&typeof preparerChoixNiveau==='function') preparerChoixNiveau(dir!=='back');
 }
 // ================================================================
 // SCREEN 1 → 2 : select category
@@ -6885,6 +6909,118 @@ let sessionLog=[];           // une entrée par réponse (sert à la sauvegarde 
 let seenKeys=new Set();
 let tDebutQ=0, pauseCumulMs=0, pauseDebutMs=null;
 
+// ================================================================
+// CHOIX DU NIVEAU (écran « Combien de questions ? ») + MODE ENTRAÎNEMENT
+// - Sans rien toucher : la séance est jouée au palier de l'élève et fait progresser (comme avant).
+// - Étoiles déjà réussies touchées : séance d'ENTRAÎNEMENT (un ou plusieurs niveaux mélangés).
+//   Elle ne modifie ni la progression ni l'historique et n'écrit rien dans Firestore.
+// ================================================================
+let modeEntrainement=false, niveauxEntrainement=[], filePioche=[];
+let niveauxChoisis=new Set();                       // niveaux cochés par l'élève
+let niveauS3={palier:1,compteur:0,pret:false};      // progression de l'élève pour le type choisi
+let jetonNiveauS3=0, messageNiveauTemp='';
+
+function listeNiveauxTexte(niv){
+  const t=niv.map(String);
+  if(t.length===1) return 'niveau '+t[0];
+  return 'niveaux '+t.slice(0,-1).join(', ')+' et '+t[t.length-1];
+}
+function niveauxEffectifs(){
+  return [...niveauxChoisis].filter(l=>l>=1&&l<=niveauS3.palier).sort((a,b)=>a-b);
+}
+function estEntrainementChoisi(){
+  return niveauS3.pret && niveauxEffectifs().some(l=>l<niveauS3.palier);
+}
+function etoileSeuleSvg(f){
+  let g='<polygon points="'+POINTS_ETOILE+'" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2;stroke-linejoin:round"/>';
+  if(f>=1) g+='<polygon points="'+POINTS_ETOILE+'" style="fill:#ffd93d;stroke:#e0b800;stroke-width:1.2;stroke-linejoin:round"/>';
+  else if(f>0){
+    const id='cpn'+(++_etoileN);
+    g+='<clipPath id="'+id+'"><rect x="0" y="0" width="'+(24*f).toFixed(2)+'" height="24"/></clipPath><polygon points="'+POINTS_ETOILE+'" clip-path="url(#'+id+')" style="fill:#ffd93d"/>';
+  }
+  return '<svg viewBox="0 0 24 24" aria-hidden="true">'+g+'</svg>';
+}
+function majLibelleBoutonDemarrer(){
+  const b=document.getElementById('startBtn');
+  if(b) b.textContent=estEntrainementChoisi()?"▶ S'entraîner !":'▶ Commencer !';
+}
+function dessinerChoixNiveau(){
+  const cont=document.getElementById('niveauEtoiles'), txt=document.getElementById('niveauTexte');
+  if(!cont||!txt) return;
+  const {palier,compteur,pret}=niveauS3;
+  const seuil=seuilDe(selTypeId);
+  cont.innerHTML='';
+  for(let i=1;i<=6;i++){
+    const verrouille=i>palier, courant=i===palier;
+    const f=i<palier?1:(courant?Math.max(0,Math.min(1,seuil>0?compteur/seuil:0)):0);
+    const b=document.createElement('button');
+    b.type='button';
+    b.className='niv-etoile'+(courant?' courant':'')+(verrouille?' verrouille':'')+(niveauxChoisis.has(i)?' choisi':'');
+    b.disabled=!pret||verrouille;
+    b.setAttribute('aria-label','Niveau '+i+(courant?' (ton niveau actuel)':(verrouille?' (pas encore atteint)':' (réussi)')));
+    b.innerHTML='<span class="niv-rond">'+etoileSeuleSvg(f)+'</span><span>'+i+'</span>';
+    b.onclick=()=>basculerNiveau(i);
+    cont.appendChild(b);
+  }
+  const ent=estEntrainementChoisi();
+  txt.classList.toggle('entrainement',ent);
+  if(!pret) txt.textContent='Chargement de ton niveau…';
+  else if(messageNiveauTemp) txt.textContent=messageNiveauTemp;
+  else if(ent) txt.textContent='💪 Entraînement : '+listeNiveauxTexte(niveauxEffectifs())+'. Ça ne compte pas pour tes étoiles.';
+  else if(palier>1) txt.textContent='Niveau '+palier+' : tu progresses normalement. Touche une étoile jaune pour t\'entraîner sur un niveau déjà réussi.';
+  else txt.textContent='Niveau 1 : tu progresses normalement. Quand tu auras réussi un niveau, tu pourras t\'y entraîner.';
+  majLibelleBoutonDemarrer();
+}
+function basculerNiveau(i){
+  if(!niveauS3.pret||i<1||i>niveauS3.palier) return;
+  const aBas=[...niveauxChoisis].some(l=>l<niveauS3.palier);
+  if(i===niveauS3.palier&&!aBas){
+    messageNiveauTemp="C'est ton niveau actuel : tu y joues quand tu ne choisis aucune étoile jaune.";
+    dessinerChoixNiveau(); return;
+  }
+  messageNiveauTemp='';
+  if(niveauxChoisis.has(i)) niveauxChoisis.delete(i); else niveauxChoisis.add(i);
+  if(![...niveauxChoisis].some(l=>l<niveauS3.palier)) niveauxChoisis.clear(); // plus de niveau inférieur : retour au mode normal
+  dessinerChoixNiveau();
+}
+function afficherAideNiveaux(){
+  afficherDialogue({icone:'⭐', titre:'Choisir ton niveau', couleur:'var(--accent2)',
+    texte:"Si tu choisis de faire des calculs de niveaux déjà réussis, ta séance de calcul sera une séance d'entraînement qui ne comptera pas pour la progression de tes résultats.",
+    boutons:[{label:"J'ai compris", primaire:true, action:(fermer)=>fermer()}]});
+}
+function aideNiveauxSiPremiereFois(){
+  if(niveauS3.palier<=1) return;
+  const uid=eleveConnecte&&eleveConnecte.uid; if(!uid) return;
+  const cle='cm_aide_niveaux_'+uid;
+  try{ if(localStorage.getItem(cle)) return; localStorage.setItem(cle,'1'); }catch(e){ return; }
+  setTimeout(()=>{ const s3=document.getElementById('s3'); if(s3&&s3.classList.contains('active')) afficherAideNiveaux(); },450);
+}
+// Appelée à chaque affichage de l'écran 3 (reset = arrivée depuis le choix du type ; sinon retour d'une séance : on garde la sélection)
+function preparerChoixNiveau(reset){
+  if(reset) niveauxChoisis=new Set();
+  messageNiveauTemp='';
+  const jeton=++jetonNiveauS3;
+  const p=progressionsEleve?(progressionsEleve[selTypeId]||{palier:1,compteur:0}):null;
+  niveauS3=p?{palier:p.palier,compteur:p.compteur,pret:true}:{palier:1,compteur:0,pret:false};
+  dessinerChoixNiveau();
+  if(p){ if(reset) aideNiveauxSiPremiereFois(); return; }
+  chargerProgression(selTypeId).then(r=>{
+    if(jeton!==jetonNiveauS3||!r||!r.etat) return;
+    niveauS3={palier:r.etat.palier,compteur:r.etat.compteur,pret:true};
+    dessinerChoixNiveau();
+    if(reset) aideNiveauxSiPremiereFois();
+  });
+}
+// Niveau de la prochaine question : le palier de l'élève, ou en entraînement un niveau tiré à tour de rôle (mélange équilibré)
+function niveauPourQuestion(){
+  if(!modeEntrainement||!niveauxEntrainement.length) return etatProg.palier;
+  if(!filePioche.length){
+    filePioche=niveauxEntrainement.slice();
+    for(let i=filePioche.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=filePioche[i]; filePioche[i]=filePioche[j]; filePioche[j]=t; }
+  }
+  return filePioche.pop();
+}
+
 // ---- Chronomètre silencieux (jamais affiché) ----
 function demarrerChrono(){ tDebutQ=performance.now(); pauseCumulMs=0; pauseDebutMs=null; }
 function suspendreChrono(){ if(pauseDebutMs===null) pauseDebutMs=performance.now(); }
@@ -6952,8 +7088,9 @@ function cleDedoublonnage(q){
 // Une question à la fois, au palier courant de l'élève (qui peut changer en cours de séance).
 function genererQuestion(){
   let q=null;
+  const niv=niveauPourQuestion();
   for(let i=0;i<60;i++){
-    q=adapterQuestion(MoteurCM.genQ(selTypeId, etatProg.palier), selTypeId, etatProg.palier);
+    q=adapterQuestion(MoteurCM.genQ(selTypeId, niv), selTypeId, niv);
     const k=cleDedoublonnage(q);
     if(!seenKeys.has(k)){ seenKeys.add(k); return q; }
   }
@@ -6970,7 +7107,7 @@ async function startGame(){
     chargerReglagesEleve().then(r=>({reglages:r}),e=>{console.warn('Lecture des réglages impossible :',e);return {erreur:true};}),
     uidEleve?eleveEstRetire(uidEleve).then(r=>({retire:r}),e=>{console.warn('Vérification du compte impossible :',e);return {erreur:true};}):Promise.resolve({})
   ]);
-  btn.disabled=false; btn.textContent='▶ Commencer !';
+  btn.disabled=false; majLibelleBoutonDemarrer();
   if(ac.retire){ await refuserEleveRetire(); return; }
   if(p.erreur||rg.erreur||ac.erreur){
     afficherDialogue({icone:'📡', titre:'Connexion impossible', texte:p.erreur?p.messageErreur:(rg.erreur?"Impossible de charger les réglages de ta classe. Vérifie la connexion internet, puis réessaie.":"Impossible de vérifier ton compte. Vérifie la connexion internet, puis réessaie."), couleur:'var(--accent2)',
@@ -6981,9 +7118,15 @@ async function startGame(){
     return;
   }
   etatProg=p.etat; progUid=p.uid; etatDebut={palier:p.etat.palier, compteur:p.etat.compteur};
+  { // Entraînement : au moins un niveau déjà réussi choisi (contrôlé ici d'après la progression lue à l'instant)
+    const lv=[...niveauxChoisis].filter(l=>l>=1&&l<=p.etat.palier).sort((a,b)=>a-b);
+    modeEntrainement=lv.some(l=>l<p.etat.palier);
+    niveauxEntrainement=modeEntrainement?lv:[]; filePioche=[];
+  }
   reglagesActifs=rg.reglages;
   seanceId=Date.now().toString(36)+Math.random().toString(36).slice(2,8); seanceDebut=new Date();
   sauvegardeProgOk=false; sauvegardeHistOk=false; histDejaTentee=false; sauvegardeEnCours=false;
+  if(modeEntrainement){ sauvegardeProgOk=true; sauvegardeHistOk=true; } // rien à enregistrer
   sessionLog=[]; seenKeys=new Set(); questions=[];
   curQ=0;score=0;answers=[];answered=false;paused=false;partieActive=true;
   document.getElementById('gQTotal').textContent=nbQ;
@@ -7038,6 +7181,7 @@ function resumeSeance(terminee){
 // un nouvel essai ne refait que ce qui n'est pas encore écrit.
 async function sauvegarderSeance(terminee){
   if(sessionLog.length===0) return;               // aucune réponse donnée : rien à enregistrer
+  if(modeEntrainement){ sauvegardeProgOk=true; sauvegardeHistOk=true; return; } // entraînement : rien n'est enregistré
   const F=window.FirebaseApp;
   if(!progUid||!F) throw new Error('non connecté');
   if(!sauvegardeProgOk){
@@ -7068,6 +7212,11 @@ function afficherStatutSauvegarde(etat){
   else el.innerHTML='⚠️ Ta séance n\'est pas enregistrée (problème de connexion). <button class="res-retry" onclick="lancerSauvegardeFin()">Réessayer</button>';
 }
 async function lancerSauvegardeFin(){
+  if(modeEntrainement){
+    const el=document.getElementById('resSave');
+    if(el){ el.style.display='block'; el.textContent="💪 Séance d'entraînement : elle ne compte pas pour tes étoiles."; }
+    return;
+  }
   if(sauvegardeEnCours)return;
   sauvegardeEnCours=true; afficherStatutSauvegarde('cours');
   try{ await sauvegarderSeance(true); afficherStatutSauvegarde('ok'); }
@@ -7088,6 +7237,12 @@ function sortirDesResultats(dest){
 function afficherBilanProgression(){
   const el=document.getElementById('resProg'); if(!el)return;
   const seuil=MoteurAdaptatif.resoudreReglage(selTypeId,'seuilProgression',reglagesActifs);
+  if(modeEntrainement){
+    el.innerHTML='<div style="font-weight:800;margin-bottom:6px;">💪 Entraînement : '+listeNiveauxTexte(niveauxEntrainement)+'</div>'
+      +'<div style="display:flex;justify-content:center;margin:4px 0;">'+etoilesHTML(etatProg.palier,etatProg.compteur,seuil,26)+'</div>'
+      +'<div>Tes étoiles n\'ont pas changé.</div>';
+    el.style.display='block'; return;
+  }
   let html='';
   if(etatProg.palier>etatDebut.palier) html+=`<div class="res-prog-up">🎉 Bravo, tu passes au palier ${etatProg.palier} !</div>`;
   html+=`<div style="display:flex;justify-content:center;margin:4px 0;">${etoilesHTML(etatProg.palier,etatProg.compteur,seuil,26)}</div>`;
@@ -7231,7 +7386,7 @@ function showQuestion(){
   document.getElementById('fracDisplay').style.display = isFrac ? 'block' : 'none';
 
   if(isMaison){
-    document.getElementById('maisonQLabel').textContent = `QUESTION ${curQ+1}`;
+    document.getElementById('maisonQLabel').textContent = `CALCUL ${curQ+1}`;
     document.getElementById('maisonTgtText').textContent = q.maisonTgt;
     document.getElementById('maisonCalcText').textContent = q.maisonDisplay;
   } else if(isFrac){
@@ -7380,7 +7535,8 @@ function conclure(q, ok, givenStr, nonReponse){
   answered=true;
   const palierAvant=etatProg.palier, compteurAvant=etatProg.compteur;
   const tps = nonReponse ? null : tempsEcoule();
-  const res = MoteurAdaptatif.traiterReponse(etatProg,{correcte:ok,tempsSecondes:tps},selTypeId,reglagesActifs);
+  const res = modeEntrainement ? {nouvelEtat:etatProg, pointsAppliques:0, aProgresse:false}
+                               : MoteurAdaptatif.traiterReponse(etatProg,{correcte:ok,tempsSecondes:tps},selTypeId,reglagesActifs);
   etatProg = res.nouvelEtat;
   sessionLog.push({ok, nonReponse, tempsSecondes:tps, palierAvant, compteurAvant,
                    points:res.pointsAppliques, aProgresse:res.aProgresse});
@@ -7551,7 +7707,7 @@ function togglePause(){
 function quitGame(){
   suspendreChrono();
   afficherDialogue({icone:'🚪', titre:'Quitter la partie ?',
-    texte: sessionLog.length>0 ? 'Tes réponses déjà données seront enregistrées.' : "Tu n'as pas encore répondu à une question.",
+    texte: modeEntrainement ? "Tu t'entraînes : cette séance ne compte pas pour tes étoiles." : sessionLog.length>0 ? 'Tes réponses déjà données seront enregistrées.' : "Tu n'as pas encore répondu à un calcul.",
     boutons:[
       {label:'Continuer', action:(fermer)=>{fermer();reprendreChrono();}},
       {label:'Quitter', primaire:true, action:(fermer,btn)=>{partieActive=false;quitterEtSauvegarder(fermer,btn);}}
