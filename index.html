@@ -832,6 +832,14 @@ body.cat-proport { --clr-active: #0652dd; }
 .niveau-texte { font-size:0.85rem; text-align:center; line-height:1.4; min-height:2.8em; color:var(--text); }
 .niveau-texte.entrainement { color:var(--accent3); font-weight:700; }
 .niv-aide { margin-left:6px; width:20px; height:20px; border-radius:50%; border:none; background:var(--surface); color:var(--text); font-family:'Nunito',sans-serif; font-weight:800; font-size:0.75rem; cursor:pointer; vertical-align:middle; }
+
+/* ===== PRÉNOM SOUS L'AVATAR ===== */
+.avatar-btn { flex-direction:column; gap:3px; max-width:90px; }
+.app-header .avatar-btn { max-width:100%; min-width:0; }
+.avatar-prenom { display:block; max-width:100%; font-family:'Nunito',sans-serif; font-weight:800; font-size:0.74rem; color:var(--text); line-height:1.1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center; }
+.avatar-prenom:empty { display:none; }
+.avatar-menu-prenom { text-align:center; font-family:'Nunito',sans-serif; font-weight:900; font-size:1.05rem; color:var(--text); margin:0 6px 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.avatar-menu-prenom:empty { display:none; }
 </style>
 </head>
 <body>
@@ -3908,7 +3916,7 @@ window.MoteurAdaptatif = {
   <div class="login-box" style="margin-top:34px;">
     <input type="text" class="login-field" id="loginIdentifiant" placeholder="Ton identifiant" autocomplete="off" autocorrect="off" spellcheck="false" oninput="majLienOubli()" onkeydown="if(event.key==='Enter')document.getElementById('loginMotDePasse').focus()">
     <div class="pwd-wrap">
-      <input type="password" class="login-field" id="loginMotDePasse" placeholder="Ton mot de passe" autocomplete="off" onkeydown="if(event.key==='Enter')tenterConnexion()">
+      <input type="password" class="login-field" id="loginMotDePasse" placeholder="Ton mot de passe" autocomplete="new-password" onkeydown="if(event.key==='Enter')tenterConnexion()">
       <button type="button" class="pwd-eye" id="loginOeil" aria-label="Afficher le mot de passe" title="Afficher / masquer le mot de passe" onclick="basculerMotDePasse()"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/><line x1="3" y1="3" x2="21" y2="21"/></svg></button>
     </div>
     <div class="login-error" id="loginErreur"></div>
@@ -4053,7 +4061,7 @@ window.MoteurAdaptatif = {
       <text x="66" y="31" text-anchor="middle">Calcul</text><text x="66" y="64" text-anchor="middle">Mental</text>
     </svg>
     <button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
-      <span class="avatar-rond">🙂</span>
+      <span class="avatar-rond">🙂</span><span class="avatar-prenom"></span>
     </button>
   </div>
 
@@ -4106,6 +4114,7 @@ window.MoteurAdaptatif = {
 <!-- Menu de l'avatar -->
 <div class="avatar-menu" id="avatarMenu" role="menu">
   <div class="avatar-rond avatar-grand" id="avatarMenuGrand">🙂</div>
+  <div class="avatar-menu-prenom" id="avatarMenuPrenom"></div>
   <button onclick="menuAvatarAction('avatar')">🖼️ Changer d'avatar</button>
   <button onclick="menuAvatarAction('progres')">⭐ Mes progrès</button>
   <button onclick="menuAvatarAction('deconnexion')">🚪 Déconnexion</button>
@@ -4116,7 +4125,7 @@ window.MoteurAdaptatif = {
 ===================================================== -->
 <div class="screen" id="s6">
   <button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
-    <span class="avatar-rond">🙂</span>
+    <span class="avatar-rond">🙂</span><span class="avatar-prenom"></span>
   </button>
   <div class="app-title">⭐ Mes progrès</div>
   <button class="btn-back" onclick="nav(1,'back')">← Retour</button>
@@ -4130,7 +4139,7 @@ window.MoteurAdaptatif = {
 ===================================================== -->
 <div class="screen" id="s2">
   <button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
-    <span class="avatar-rond">🙂</span>
+    <span class="avatar-rond">🙂</span><span class="avatar-prenom"></span>
   </button>
   <button class="btn-back" id="s2BackBtn" onclick="goBackFromS2()">← Retour</button>
   <div class="cat-badge" id="catBadge">
@@ -4146,7 +4155,7 @@ window.MoteurAdaptatif = {
 ===================================================== -->
 <div class="screen" id="s3">
   <button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
-    <span class="avatar-rond">🙂</span>
+    <span class="avatar-rond">🙂</span><span class="avatar-prenom"></span>
   </button>
   <button class="btn-back" onclick="goBackFromS3()">← Retour</button>
   <div class="app-title" style="font-size:1.5rem; margin-bottom:16px;">Combien de calculs ?</div>
@@ -4390,6 +4399,16 @@ async function tenterConnexion() {
   }
 }
 
+// Tablettes partagées : on ne garde jamais un identifiant ou un mot de passe dans les champs de connexion.
+// Appelée à chaque changement d'écran (donc après une connexion réussie ET après une déconnexion).
+function viderChampsConnexion() {
+  const id = document.getElementById('loginIdentifiant'), mdp = document.getElementById('loginMotDePasse');
+  if (id) id.value = '';
+  if (mdp) { mdp.value = ''; if (mdp.type !== 'password') basculerMotDePasse(); } // remet aussi l'œil sur « masqué »
+  if (typeof majLienOubli === 'function') majLienOubli();
+}
+window.addEventListener('pageshow', function(e){ if (e.persisted) viderChampsConnexion(); }); // retour arrière du navigateur
+
 // Oeil : afficher / masquer le mot de passe tapé
 const OEIL_OUVERT = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 const OEIL_BARRE = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/><line x1="3" y1="3" x2="21" y2="21"/></svg>';
@@ -4461,6 +4480,7 @@ async function refuserEleveRetire(){
 // l'élève d'un ordinateur à l'autre. Si l'écriture en ligne est refusée : silencieux.
 // ================================================================
 let avatarActuel=null;   // identifiant ("F1", "G4"…) ou null
+let prenomEleve='';       // prénom (identifiant) de l'élève connecté
 let genreEleve='I';      // défini par l'enseignant : F, G ou I (indéfini = tous les avatars)
 let avatarEdition=null;  // choix en cours dans la fenêtre
 
@@ -4476,7 +4496,22 @@ function appliquerAvatar(el,id){
   if(avatarValide(id)) el.innerHTML='<img src="'+AVATAR_IMGS[id]+'" alt="Avatar">';
   else el.textContent='🙂';
 }
-function majAvatarAccueil(){ document.querySelectorAll('.avatar-btn .avatar-rond').forEach(el=>appliquerAvatar(el,avatarActuel)); appliquerAvatar(document.getElementById('avatarMenuGrand'),avatarActuel); }
+function majAvatarAccueil(){ document.querySelectorAll('.avatar-btn .avatar-rond').forEach(el=>appliquerAvatar(el,avatarActuel)); appliquerAvatar(document.getElementById('avatarMenuGrand'),avatarActuel); majPrenomAffiche(); }
+// Prénom de l'élève = son identifiant. L'e-mail technique est l'identifiant en hexadécimal (UTF-8) : on le relit sans réseau.
+function prenomDepuisEmail(email){
+  try{
+    const loc=String(email||'').split('@')[0].toLowerCase();
+    if(!/^([0-9a-f]{2})+$/.test(loc)) return '';
+    const o=new Uint8Array(loc.length/2);
+    for(let i=0;i<o.length;i++) o[i]=parseInt(loc.substr(i*2,2),16);
+    return new TextDecoder('utf-8').decode(o).trim();
+  }catch(e){ return ''; }
+}
+function majPrenomAffiche(){
+  document.querySelectorAll('.avatar-btn .avatar-prenom').forEach(el=>{ el.textContent=prenomEleve; });
+  const m=document.getElementById('avatarMenuPrenom'); if(m) m.textContent=prenomEleve;
+  document.querySelectorAll('.avatar-btn').forEach(b=>{ b.title=prenomEleve?('Menu de '+prenomEleve):'Mon menu'; });
+}
 
 function dessinerChoixAvatar(){
   const liste=document.getElementById('avatarListe');
@@ -4587,6 +4622,7 @@ function avatarHtmlEns(id){
 
 // Appelée à la connexion : cache local d'abord (instantané), puis version en ligne.
 async function initAvatar(user){
+  prenomEleve=prenomDepuisEmail(user.email);
   avatarActuel=avatarLireLocal(user.uid);
   try{ const g0=localStorage.getItem('cm_genre_'+user.uid); genreEleve=(g0==='F'||g0==='G')?g0:'I'; }catch(e){ genreEleve='I'; }
   majAvatarAccueil();
@@ -4596,6 +4632,7 @@ async function initAvatar(user){
     const snap=await F.getDoc(F.doc(F.db,'profilsEleves',user.uid));
     enLigneLu=true;
     if(!eleveConnecte||eleveConnecte.uid!==user.uid) return; // déconnecté entre-temps
+    if(snap.exists()&&typeof snap.data().identifiant==='string'&&snap.data().identifiant.trim()){ prenomEleve=snap.data().identifiant.trim(); majPrenomAffiche(); }
     const g=snap.exists()?snap.data().genre:null;
     genreEleve=(g==='F'||g==='G')?g:'I';
     try{ localStorage.setItem('cm_genre_'+user.uid,genreEleve); }catch(e){}
@@ -4627,7 +4664,7 @@ window.onEleveConnecte = async function(user) {
 function deconnecterEleve() {
   window.FirebaseApp.deconnecter();
   eleveConnecte = null;
-  avatarActuel=null; fermerChoixAvatar(); majAvatarAccueil();
+  avatarActuel=null; prenomEleve=''; fermerChoixAvatar(); majAvatarAccueil();
   progressionsEleve=null; progressionsEtat='idle'; reglagesActifs=null;
   nav(0);
 }
@@ -5535,6 +5572,7 @@ function nav(screenNum, dir='fwd') {
   window.scrollTo(0,0);
   if(typeof fermerMenuAvatar==='function') fermerMenuAvatar();
   if(screenNum===3&&typeof preparerChoixNiveau==='function') preparerChoixNiveau(dir!=='back');
+  if(typeof viderChampsConnexion==='function') viderChampsConnexion();
 }
 // ================================================================
 // SCREEN 1 → 2 : select category
