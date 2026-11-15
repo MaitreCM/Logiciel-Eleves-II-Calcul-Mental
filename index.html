@@ -4606,9 +4606,9 @@ function prixDe(base, reg) { return prixRarete(rareteDe(base, reg), reg); }
 function imgAvatar(id) { return AVATAR_IMGS[id] || SHOP_IMGS[id] || ''; }
 function nomAvatar(id) { const b = AV_CAT[idBase(id)]; return b ? (b['n' + id.slice(-1)] || b.n) : ''; }
 function soldeJetons() { return etatRecomp ? etatRecomp.gagnes - etatRecomp.depenses : 0; }
-function dateLocale() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
-function semaineISO() {
-  const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+function dateLocale(t) { const d = t ? new Date(t) : new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function semaineISO(t) {
+  const d = t ? new Date(t) : new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
   const w1 = new Date(d.getFullYear(), 0, 4);
   return d.getFullYear() + '-W' + String(1 + Math.round(((d - w1) / 86400000 - 3 + ((w1.getDay() + 6) % 7)) / 7)).padStart(2, '0');
 }
@@ -4626,8 +4626,14 @@ async function chargerRecompenses(uid, classeId) {
     etatRecomp = { gagnes: nb(d.gagnes, 0, 0, 1e9), depenses: nb(d.depenses, 0, 0, 1e9),
       avatars: Array.isArray(d.avatars) ? d.avatars.filter(avatarValide) : [], objectif: typeof d.objectif === 'string' ? d.objectif : '',
       jour: d.jour || '', gagnesJour: nb(d.gagnesJour, 0, 0, 1e9), semaine: d.semaine || '', jours: Array.isArray(d.jours) ? d.jours : [],
-      bonusSemaine: d.bonusSemaine || '', etoilesPayees: (d.etoilesPayees && typeof d.etoilesPayees === 'object') ? d.etoilesPayees : {} };
+      bonusSemaine: d.bonusSemaine || '', etoilesPayees: (d.etoilesPayees && typeof d.etoilesPayees === 'object') ? d.etoilesPayees : {}, migre: d.migre === true };
     regRecomp = reg || recompFusion({});
+    if (regRecomp.actif && !etatRecomp.migre) {
+      const avant = etatRecomp.gagnes;
+      if (await migrerRecompenses(uid) && eleveConnecte && eleveConnecte.uid === uid && etatRecomp.gagnes > avant)
+        setTimeout(() => afficherDialogue({ icone: '🎉', titre: 'Bravo !', texte: 'Ton travail depuis le début t\'a déjà rapporté <b>' + (etatRecomp.gagnes - avant) + ' jetons</b>. Va voir la boutique !',
+          boutons: [{ label: 'Plus tard', action: f => f() }, { label: '🛍️ Boutique', primaire: true, action: f => { f(); ouvrirBoutique(); } }] }), 800);
+    }
   } catch (e) { console.warn('Récompenses indisponibles :', e); regRecomp = null; etatRecomp = null; }
   majBoutiqueMenu(); majAvatarAccueil();
 }
@@ -4636,7 +4642,7 @@ async function ecrireRecompenses() {
   try {
     await F.setDoc(F.doc(F.db, 'recompenses', eleveConnecte.uid), { gagnes: e.gagnes, depenses: e.depenses, avatars: e.avatars, objectif: e.objectif || '',
       jour: e.jour || '', gagnesJour: e.gagnesJour || 0, semaine: e.semaine || '', jours: e.jours || [], bonusSemaine: e.bonusSemaine || '',
-      etoilesPayees: e.etoilesPayees || {}, maj: new Date() });
+      etoilesPayees: e.etoilesPayees || {}, migre: !!e.migre, maj: new Date() });
     return true;
   } catch (err) { console.warn('Jetons non enregistrés :', err); return false; }
 }
@@ -4645,6 +4651,52 @@ function majBoutiqueMenu() {
   const ok = !!(regRecomp && regRecomp.actif && etatRecomp);
   b.style.display = ok ? '' : 'none';
   if (ok) b.textContent = '🛍️ Boutique · 🪙 ' + soldeJetons();
+}
+
+// Rattrapage unique : ce que le travail passé aurait rapporté (étoiles déjà remplies + historique des séances),
+// avec les mêmes règles (plafond par jour, bonus de séance, régularité). Ne donne jamais moins que ce que l'élève a déjà.
+async function migrerRecompenses(uid) {
+  const F = window.FirebaseApp, r = regRecomp, e = etatRecomp, auj = dateLocale(), sem = semaineISO();
+  for (let i = 0; i < 40 && (progressionsEtat === 'idle' || progressionsEtat === 'chargement'); i++) {
+    if (progressionsEtat === 'idle') chargerToutesProgressions();
+    await new Promise(res => setTimeout(res, 150));
+  }
+  if (progressionsEtat !== 'ok' || !progressionsEleve) return false; // on réessaiera à la prochaine connexion
+  let total = 0; const payees = {};
+  Object.keys(progressionsEleve).forEach(id => {
+    const p = progressionsEleve[id], acq = etoilesAcquises(p.palier, p.compteur, seuilDe(id));
+    if (acq > 0) payees[id] = acq;
+    for (let k = 1; k <= acq; k++) total += Math.round(r.etoiles[k - 1]);
+  });
+  const parJour = {}, semaines = {};
+  try {
+    const snap = await F.getDocs(F.collection(F.db, 'seances', uid, 'historique'));
+    snap.forEach(sn => {
+      const x = sn.data(), t = x.date && x.date.toDate ? x.date.toDate() : (x.date ? new Date(x.date) : null);
+      if (!t || isNaN(t)) return;
+      const j = dateLocale(t), rep = nb(x.nbQuestions, 0, 0, 1000), bon = nb(x.nbCorrectes, 0, 0, 1000);
+      let g = Math.floor(bon * r.repJeton);
+      if (rep >= 5 && bon * 100 >= r.seuilSeance * rep) g += Math.round(r.bonusSeance);
+      parJour[j] = (parJour[j] || 0) + g;
+    });
+  } catch (err) { console.warn('Historique illisible :', err); return false; }
+  Object.keys(parJour).forEach(j => {
+    parJour[j] = Math.min(Math.floor(r.plafondJour), parJour[j]); total += parJour[j];
+    const w = semaineISO(j + 'T12:00:00'); (semaines[w] = semaines[w] || []).push(j);
+  });
+  let bonusCourante = false;
+  Object.keys(semaines).forEach(w => { if (semaines[w].length >= r.joursSemaine) { total += Math.round(r.bonusSemaine); if (w === sem) bonusCourante = true; } });
+  e.gagnes = Math.max(e.gagnes, total);
+  Object.keys(payees).forEach(id => { e.etoilesPayees[id] = Math.max(payees[id], e.etoilesPayees[id] || 0); });
+  const dejaAuj = e.jour === auj ? e.gagnesJour : 0;
+  if (parJour[auj] !== undefined || dejaAuj) { e.jour = auj; e.gagnesJour = Math.max(dejaAuj, parJour[auj] || 0); }
+  if (e.semaine !== sem) { e.semaine = sem; e.jours = []; }
+  (semaines[sem] || []).forEach(j => { if (e.jours.indexOf(j) < 0) e.jours.push(j); });
+  if (bonusCourante && e.bonusSemaine !== sem) e.bonusSemaine = sem;
+  e.migre = true;
+  if (!(await ecrireRecompenses())) { e.migre = false; return false; }
+  majBoutiqueMenu();
+  return true;
 }
 
 // ---------- Élève : gagner des jetons (appelée une fois par séance) ----------
