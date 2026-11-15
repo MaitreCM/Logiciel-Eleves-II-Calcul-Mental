@@ -4402,9 +4402,9 @@ window.MoteurAdaptatif = {
   <div class="res-save" id="resSave" style="display:none;"></div>
   <div class="section-lbl">Détail des réponses</div>
   <div class="review-list" id="reviewList"></div>
-  <div class="btn-row">
+  <div class="btn-row" style="flex-wrap:wrap;">
+    <button class="btn btn-secondary" style="flex:1 1 100%;" onclick="sortirDesResultats(3)">Nouvelle séance de calculs</button>
     <button class="btn btn-secondary" onclick="sortirDesResultats(1)">🏠 Menu</button>
-    <button class="btn btn-secondary" onclick="sortirDesResultats(3)">⚙️ Retour</button>
     <button class="btn btn-secondary" onclick="printResults()">📋 Correction</button>
   </div>
 </div>
