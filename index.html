@@ -881,6 +881,9 @@ body.cat-proport { --clr-active: #0652dd; }
 .rc-details summary { cursor:pointer; font-weight:800; }
 .rc-titre { font-weight:800; font-size:0.8rem; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin:14px 0 4px; }
 .rc-stats { color:var(--muted); font-weight:700; }
+
+.cornet-pop { animation:cornetPop .55s ease-out; }
+@keyframes cornetPop { 0%{transform:scale(1) rotate(0)} 30%{transform:scale(1.6) rotate(-18deg)} 60%{transform:scale(1.25) rotate(10deg)} 100%{transform:scale(1) rotate(0)} }
 </style>
 </head>
 <body>
@@ -6108,6 +6111,7 @@ function nav(screenNum, dir='fwd') {
   s.classList.add('active', dir==='back'?'anim-back':'anim-fwd');
   window.scrollTo(0,0);
   if(typeof fermerMenuAvatar==='function') fermerMenuAvatar();
+  if(screenNum!==5&&typeof arreterConfettis==='function') arreterConfettis();
   if(screenNum===3&&typeof preparerChoixNiveau==='function') preparerChoixNiveau(dir!=='back');
   if(typeof viderChampsConnexion==='function') viderChampsConnexion();
 }
@@ -7802,6 +7806,45 @@ function sortirDesResultats(dest){
 }
 
 // Palier et points affichés à la fin de la séance
+// ---- Confettis : explosion sur tout l'écran quand l'élève passe une étoile ----
+let confettisSeance=null, confettisAnim=null;
+function arreterConfettis(){
+  if(confettisAnim){ cancelAnimationFrame(confettisAnim); confettisAnim=null; }
+  const c=document.getElementById('confettisCanvas'); if(c) c.remove();
+}
+function lancerConfettis(){
+  try{
+    if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; // respecte « réduire les animations »
+    const src=document.getElementById('cornetConfettis'); if(!src) return;
+    arreterConfettis();
+    src.classList.remove('cornet-pop'); void src.offsetWidth; src.classList.add('cornet-pop');
+    const r=src.getBoundingClientRect(), W=380, H=360, ox=190, oy=190; // zone de dessin autour du cornet seulement
+    const cv=document.createElement('canvas'); cv.id='confettisCanvas';
+    cv.style.cssText='position:fixed;left:'+(r.left+r.width/2-ox)+'px;top:'+(r.top+r.height/2-oy)+'px;width:'+W+'px;height:'+H+'px;pointer-events:none;z-index:400;';
+    document.body.appendChild(cv);
+    const dpr=window.devicePixelRatio||1; cv.width=W*dpr; cv.height=H*dpr; const g=cv.getContext('2d'); g.scale(dpr,dpr);
+    const couleurs=['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#c77dff','#ff9f43'], parts=[];
+    const jaillir=n=>{ for(let i=0;i<n;i++){ const a=-0.85+(Math.random()-0.5)*2.1, v=4+Math.random()*7; // vers le haut et la droite, comme un cornet
+      parts.push({x:ox,y:oy,vx:Math.cos(a)*v,vy:Math.sin(a)*v,rot:Math.random()*6.3,vr:(Math.random()-0.5)*0.5,
+        w:4+Math.random()*6,h:3+Math.random()*5,rond:Math.random()<0.3,c:couleurs[(Math.random()*couleurs.length)|0],vie:0,dure:38+Math.random()*24}); } };
+    jaillir(55); const t0=performance.now(); let deuxieme=false;
+    const image=t=>{
+      if(!deuxieme&&t-t0>=180){ deuxieme=true; jaillir(35); }
+      g.clearRect(0,0,W,H);
+      for(const p of parts){
+        p.vx*=0.94; p.vy=p.vy*0.94+0.28; p.x+=p.vx; p.y+=p.vy; p.rot+=p.vr; p.vie++;
+        const al=Math.max(0,Math.min(1,(p.dure-p.vie)/20)); if(al<=0) continue;
+        g.save(); g.globalAlpha=al; g.translate(p.x,p.y); g.rotate(p.rot); g.fillStyle=p.c;
+        if(p.rond){ g.beginPath(); g.arc(0,0,p.w/2.4,0,6.3); g.fill(); } else g.fillRect(-p.w/2,-p.h/2,p.w,p.h);
+        g.restore();
+      }
+      if(deuxieme&&parts.every(p=>p.vie>=p.dure)){ arreterConfettis(); return; }
+      confettisAnim=requestAnimationFrame(image);
+    };
+    confettisAnim=requestAnimationFrame(image);
+  }catch(e){ console.warn('confettis :',e); }
+}
+
 function afficherBilanProgression(){
   const el=document.getElementById('resProg'); if(!el)return;
   const seuil=MoteurAdaptatif.resoudreReglage(selTypeId,'seuilProgression',reglagesActifs);
@@ -7812,10 +7855,14 @@ function afficherBilanProgression(){
     el.style.display='block'; return;
   }
   let html='';
-  if(etatProg.palier>etatDebut.palier) html+=`<div class="res-prog-up">🎉 Bravo, tu passes au palier ${etatProg.palier} !</div>`;
+  if(etatProg.palier>etatDebut.palier) html+=`<div class="res-prog-up"><span id="cornetConfettis" style="display:inline-block;">🎉</span> Bravo, tu passes au palier ${etatProg.palier} !</div>`;
+  const sixieme=etatDebut.palier===6&&etatProg.palier===6&&etatDebut.compteur<seuil&&etatProg.compteur>=seuil;
+  if(sixieme) html+=`<div class="res-prog-up"><span id="cornetConfettis" style="display:inline-block;">🎉</span> Bravo, ta 6e étoile est pleine !</div>`;
   html+=`<div style="display:flex;justify-content:center;margin:4px 0;">${etoilesHTML(etatProg.palier,etatProg.compteur,seuil,26)}</div>`;
   html+=`<div>Palier ${etatProg.palier} · ${fmt(etatProg.compteur)} / ${fmt(seuil)} points</div>`;
   el.innerHTML=html; el.style.display='block';
+  // Étoile passée (palier gagné, ou 6e étoile remplie) : confettis, une seule fois par séance
+  if((etatProg.palier>etatDebut.palier||sixieme)&&confettisSeance!==seanceId){ confettisSeance=seanceId; setTimeout(lancerConfettis,350); }
 }
 
 // ===== FRACTION SVG BUILDER =====
