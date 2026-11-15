@@ -4581,7 +4581,7 @@ const SHOP_IMGS={
 // et de régularité HORS plafond. Stockage : recompenses/{uid} (élève) et recompensesReglages/{classeId} (enseignant).
 // ================================================================
 const RAR_NOM = { C: 'Commun', R: 'Rare', E: 'Épique', L: 'Légendaire' }, RAR_ORDRE = ['C', 'R', 'E', 'L'];
-const RECOMP_DEFAUT = { actif: true, coefPrix: 1, prix: { C: 60, R: 160, E: 450, L: 800 }, repJeton: 1, entrainementDiv: 2, plafondJour: 30,
+const RECOMP_DEFAUT = { actif: true, coefPrix: 1, prix: { C: 60, R: 160, E: 450, L: 800 }, repJeton: 1, entrainementDiv: 2, entrT1: 40, entrDiv2: 4, entrT2: 40, entrDiv3: 8, plafondJour: 100,
   bonusSeance: 3, seuilSeance: 80, bonusSemaine: 15, joursSemaine: 3, etoiles: [20, 40, 80, 140, 240, 500], rarete: {} };
 let regRecomp = null, etatRecomp = null, classeIdEleve = null, jetonsCredites = null, dernierGain = null;
 let regEns = null, statsEns = { owners: {}, visants: {} };
@@ -4591,8 +4591,9 @@ function recompFusion(d) {
   d = d || {}; const D = RECOMP_DEFAUT, r = {};
   r.actif = d.actif !== false; r.coefPrix = nb(d.coefPrix, 1, 0.5, 2);
   r.prix = {}; RAR_ORDRE.forEach(k => { r.prix[k] = nb(d.prix && d.prix[k], D.prix[k], 5, 100000); });
-  r.repJeton = nb(d.repJeton, 1, 0, 50); r.entrainementDiv = nb(d.entrainementDiv, 2, 1, 50);
-  r.plafondJour = nb(d.plafondJour, 30, 0, 5000); r.bonusSeance = nb(d.bonusSeance, 3, 0, 500); r.seuilSeance = nb(d.seuilSeance, 80, 1, 100);
+  r.repJeton = nb(d.repJeton, 1, 0, 50); r.entrainementDiv = nb(d.entrainementDiv, 2, 1, 100);
+  r.entrT1 = nb(d.entrT1, 40, 0, 10000); r.entrDiv2 = nb(d.entrDiv2, 4, 1, 100); r.entrT2 = nb(d.entrT2, 40, 0, 10000); r.entrDiv3 = nb(d.entrDiv3, 8, 1, 100);
+  r.plafondJour = nb(d.plafondJour, 100, 0, 5000); r.bonusSeance = nb(d.bonusSeance, 3, 0, 500); r.seuilSeance = nb(d.seuilSeance, 80, 1, 100);
   r.bonusSemaine = nb(d.bonusSemaine, 15, 0, 5000); r.joursSemaine = nb(d.joursSemaine, 3, 1, 7);
   r.etoiles = D.etoiles.map((v, i) => nb(d.etoiles && d.etoiles[i], v, 0, 5000));
   r.rarete = {};
@@ -4625,7 +4626,7 @@ async function chargerRecompenses(uid, classeId) {
     const d = sn.exists() ? sn.data() : {};
     etatRecomp = { gagnes: nb(d.gagnes, 0, 0, 1e9), depenses: nb(d.depenses, 0, 0, 1e9),
       avatars: Array.isArray(d.avatars) ? d.avatars.filter(avatarValide) : [], objectif: typeof d.objectif === 'string' ? d.objectif : '',
-      jour: d.jour || '', gagnesJour: nb(d.gagnesJour, 0, 0, 1e9), semaine: d.semaine || '', jours: Array.isArray(d.jours) ? d.jours : [],
+      jour: d.jour || '', gagnesJour: nb(d.gagnesJour, 0, 0, 1e9), bonnesEntrJour: Math.floor(nb(d.bonnesEntrJour, 0, 0, 1e9)), semaine: d.semaine || '', jours: Array.isArray(d.jours) ? d.jours : [],
       bonusSemaine: d.bonusSemaine || '', etoilesPayees: (d.etoilesPayees && typeof d.etoilesPayees === 'object') ? d.etoilesPayees : {}, migre: d.migre === true };
     regRecomp = reg || recompFusion({});
     if (regRecomp.actif && !etatRecomp.migre) {
@@ -4641,7 +4642,7 @@ async function ecrireRecompenses() {
   const F = window.FirebaseApp, e = etatRecomp;
   try {
     await F.setDoc(F.doc(F.db, 'recompenses', eleveConnecte.uid), { gagnes: e.gagnes, depenses: e.depenses, avatars: e.avatars, objectif: e.objectif || '',
-      jour: e.jour || '', gagnesJour: e.gagnesJour || 0, semaine: e.semaine || '', jours: e.jours || [], bonusSemaine: e.bonusSemaine || '',
+      jour: e.jour || '', gagnesJour: e.gagnesJour || 0, bonnesEntrJour: e.bonnesEntrJour || 0, semaine: e.semaine || '', jours: e.jours || [], bonusSemaine: e.bonusSemaine || '',
       etoilesPayees: e.etoilesPayees || {}, migre: !!e.migre, maj: new Date() });
     return true;
   } catch (err) { console.warn('Jetons non enregistrés :', err); return false; }
@@ -4699,19 +4700,28 @@ async function migrerRecompenses(uid) {
   return true;
 }
 
+// Entraînement : le gain par bonne réponse diminue au fil de la journée (3 tranches), sans jamais s'arrêter.
+// n = bonnes réponses d'entraînement déjà faites aujourd'hui, m = celles de cette séance.
+function jetonsEntrainement(n, m, r) {
+  const f = x => { const a = Math.min(x, r.entrT1), b = Math.min(Math.max(x - r.entrT1, 0), r.entrT2), c = Math.max(x - r.entrT1 - r.entrT2, 0);
+    return (a / r.entrainementDiv + b / r.entrDiv2 + c / r.entrDiv3) * r.repJeton; };
+  return Math.floor(f(n + m) + 1e-9) - Math.floor(f(n) + 1e-9);
+}
+
 // ---------- Élève : gagner des jetons (appelée une fois par séance) ----------
 async function crediterRecompenses() {
   if (jetonsCredites === seanceId) return dernierGain;
   if (!regRecomp || !regRecomp.actif || !etatRecomp || sessionLog.length === 0) return null;
   jetonsCredites = seanceId;
   const r = regRecomp, e = etatRecomp, auj = dateLocale(), sem = semaineISO();
-  if (e.jour !== auj) { e.jour = auj; e.gagnesJour = 0; }
-  const bonnes = sessionLog.filter(x => x.ok).length;
-  const brut = Math.floor(modeEntrainement ? bonnes * r.repJeton / r.entrainementDiv : bonnes * r.repJeton);
+  if (e.jour !== auj) { e.jour = auj; e.gagnesJour = 0; e.bonnesEntrJour = 0; }
+  const bonnes = sessionLog.filter(x => x.ok).length, nEntr = e.bonnesEntrJour || 0;
+  const brut = modeEntrainement ? jetonsEntrainement(nEntr, bonnes, r) : Math.floor(bonnes * r.repJeton);
   const bonusS = (!modeEntrainement && sessionLog.length >= 5 && bonnes * 100 >= r.seuilSeance * sessionLog.length) ? Math.round(r.bonusSeance) : 0;
   const dispo = Math.max(0, r.plafondJour - e.gagnesJour);
-  const sousPlafond = Math.floor(Math.min(dispo, brut + bonusS));
-  e.gagnesJour += sousPlafond;
+  let sousPlafond;
+  if (modeEntrainement) { sousPlafond = brut; e.bonnesEntrJour = nEntr + bonnes; } // entraînement : pas de plafond, gain dégressif
+  else { sousPlafond = Math.floor(Math.min(dispo, brut + bonusS)); e.gagnesJour += sousPlafond; }
   let bonusE = 0, nbEt = 0;
   if (!modeEntrainement) { // étoiles remplies pendant cette séance (jamais payées deux fois)
     const seuil = seuilDe(selTypeId), acq = etoilesAcquises(etatProg.palier, etatProg.compteur, seuil);
@@ -4725,7 +4735,7 @@ async function crediterRecompenses() {
   if (e.jours.length >= r.joursSemaine && e.bonusSemaine !== sem) { bonusR = Math.round(r.bonusSemaine); e.bonusSemaine = sem; }
   const total = sousPlafond + bonusE + bonusR;
   e.gagnes += total;
-  dernierGain = { total, sousPlafond, bonusE, nbEt, bonusR, plafond: (brut + bonusS) > dispo };
+  dernierGain = { total, sousPlafond, bonusE, nbEt, bonusR, entrainement: modeEntrainement, plafond: !modeEntrainement && (brut + bonusS) > dispo, entrReduit: modeEntrainement && (nEntr + bonnes) > r.entrT1 };
   await ecrireRecompenses();
   majBoutiqueMenu();
   return dernierGain;
@@ -4733,12 +4743,14 @@ async function crediterRecompenses() {
 function afficherGainJetons() {
   const el = document.getElementById('resJetons'); if (!el) return;
   const g = (jetonsCredites === seanceId) ? dernierGain : null;
-  if (!g || (!g.total && !g.plafond)) { el.style.display = 'none'; return; }
+  if (!g || (!g.total && !g.plafond && !g.entrReduit)) { el.style.display = 'none'; return; }
   let h = '';
   if (g.total) h += '<div class="gain-titre">🪙 +' + g.total + ' jeton' + (g.total > 1 ? 's' : '') + '</div>';
   const d = []; if (g.bonusE) d.push('étoile' + (g.nbEt > 1 ? 's' : '') + ' : +' + g.bonusE); if (g.bonusR) d.push('régularité : +' + g.bonusR);
   if (d.length) h += '<div class="gain-detail">dont ' + d.join(' · ') + '</div>';
-  if (g.plafond) h += '<div class="gain-detail">Tu as atteint la limite de jetons pour aujourd\'hui, reviens demain !</div>';
+  if (g.plafond) h += '<div class="gain-detail">Tu as atteint la limite de jetons pour tes calculs d\'aujourd\'hui. Chaque étoile remplie rapporte encore un gros bonus !</div>';
+  else if (g.entrReduit) h += '<div class="gain-detail">Plus tu t\'entraînes dans la journée, moins chaque calcul rapporte de jetons, mais ça ne s\'arrête jamais.</div>';
+  else if (!g.entrainement && regRecomp) h += '<div class="gain-detail">Jetons du jour : ' + etatRecomp.gagnesJour + ' / ' + regRecomp.plafondJour + '</div>';
   el.innerHTML = h + '<div class="gain-detail">Ton solde : ' + soldeJetons() + ' 🪙</div>'; el.style.display = 'block';
 }
 
@@ -4797,7 +4809,7 @@ async function acheterAvatar(id) {
 function syncFormEns() {
   if (!regEns || !document.getElementById('rcActif')) return;
   const g = id => { const el = document.getElementById(id); return el ? el.value : undefined; };
-  regEns = recompFusion({ actif: document.getElementById('rcActif').checked, coefPrix: g('rcCoef'), repJeton: g('rcRep'), entrainementDiv: g('rcDiv'),
+  regEns = recompFusion({ actif: document.getElementById('rcActif').checked, coefPrix: g('rcCoef'), repJeton: g('rcRep'), entrainementDiv: g('rcDiv'), entrT1: g('rcT1'), entrDiv2: g('rcDiv2'), entrT2: g('rcT2'), entrDiv3: g('rcDiv3'),
     plafondJour: g('rcPlafond'), bonusSeance: g('rcBS'), seuilSeance: g('rcSeuil'), bonusSemaine: g('rcBW'), joursSemaine: g('rcJW'),
     etoiles: [1, 2, 3, 4, 5, 6].map(i => g('rcE' + i)), prix: { C: g('rcPC'), R: g('rcPR'), E: g('rcPE'), L: g('rcPL') }, rarete: regEns.rarete });
 }
@@ -4807,10 +4819,14 @@ function dessinerRecompensesEns() {
   let h = '<label class="rc-champ"><span>Récompenses activées</span><input type="checkbox" id="rcActif" ' + (r.actif ? 'checked' : '') + '></label>';
   h += '<div class="rc-champ"><span>Prix des avatars : <b id="rcCoefTxt">×' + r.coefPrix.toFixed(1) + '</b></span><input type="range" id="rcCoef" min="0.5" max="2" step="0.1" value="' + r.coefPrix + '" oninput="document.getElementById(\'rcCoefTxt\').textContent=\'×\'+Number(this.value).toFixed(1)"></div>';
   h += '<details class="rc-details"><summary>Réglages détaillés</summary><div class="rc-titre">Gains</div>'
-    + ch('rcRep', 'Jetons par bonne réponse', r.repJeton, 0, 50, 0.5) + ch('rcDiv', 'Entraînement : 1 jeton pour … bonnes réponses', r.entrainementDiv, 1, 50)
-    + ch('rcPlafond', 'Plafond par jour (réponses + bonus de séance)', r.plafondJour, 0, 5000) + ch('rcBS', 'Bonus de séance réussie', r.bonusSeance, 0, 500)
+    + ch('rcRep', 'Jetons par bonne réponse', r.repJeton, 0, 50, 0.5)
+    + ch('rcPlafond', 'Plafond par jour, calculs à son niveau (réponses + bonus de séance)', r.plafondJour, 0, 5000) + ch('rcBS', 'Bonus de séance réussie', r.bonusSeance, 0, 500)
     + ch('rcSeuil', '… à partir de (% de réussite)', r.seuilSeance, 1, 100) + ch('rcBW', 'Bonus de régularité (par semaine)', r.bonusSemaine, 0, 5000)
     + ch('rcJW', '… pour ce nombre de jours travaillés', r.joursSemaine, 1, 7)
+    + '<div class="rc-titre">Entraînement (le gain diminue dans la journée, sans jamais s\'arrêter)</div>'
+    + ch('rcDiv', '1 jeton pour … bonnes réponses', r.entrainementDiv, 1, 100) + ch('rcT1', '… pendant les … premières bonnes réponses du jour', r.entrT1, 0, 10000)
+    + ch('rcDiv2', 'Ensuite, 1 jeton pour … bonnes réponses', r.entrDiv2, 1, 100) + ch('rcT2', '… pendant les … suivantes', r.entrT2, 0, 10000)
+    + ch('rcDiv3', 'Après, 1 jeton pour … bonnes réponses', r.entrDiv3, 1, 100)
     + '<div class="rc-titre">Bonus quand une étoile est remplie (hors plafond)</div>' + r.etoiles.map((v, i) => ch('rcE' + (i + 1), 'Étoile ' + (i + 1), v, 0, 5000)).join('')
     + '<div class="rc-titre">Prix de base</div>' + RAR_ORDRE.map(k => ch('rcP' + k, RAR_NOM[k], r.prix[k], 5, 100000)).join('')
     + '<button class="btn btn-secondary" style="margin-top:10px;width:100%;" onclick="recompDefauts()">Valeurs par défaut</button></details>';
