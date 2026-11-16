@@ -884,6 +884,17 @@ body.cat-proport { --clr-active: #0652dd; }
 
 .cornet-pop { animation:cornetPop .55s ease-out; }
 @keyframes cornetPop { 0%{transform:scale(1) rotate(0)} 30%{transform:scale(1.6) rotate(-18deg)} 60%{transform:scale(1.25) rotate(10deg)} 100%{transform:scale(1) rotate(0)} }
+
+/* ===== OBJECTIF (barre de progression vers un avatar) ===== */
+.obj-bloc { margin-top:10px; background:var(--card2); border-radius:14px; padding:10px 12px; font-size:0.85rem; font-weight:700; text-align:center; }
+.obj-bloc.atteint { border:2px solid var(--accent3); }
+.obj-bloc .barre, .menu-objectif .barre { height:8px; border-radius:99px; background:var(--surface); margin-top:6px; overflow:hidden; }
+.obj-bloc .barre div, .menu-objectif .barre div { height:100%; background:var(--accent2); }
+.obj-bloc.atteint .barre div { background:var(--accent3); }
+.obj-btn { margin-top:10px; width:100%; }
+.menu-objectif { margin:2px 6px 6px; padding:8px 10px; border-radius:10px; background:var(--card2); font-size:0.78rem; font-weight:700; text-align:center; cursor:pointer; }
+.obj-actions { display:flex; justify-content:center; gap:14px; margin-top:6px; }
+.obj-lien { background:none; border:none; color:var(--muted); font-family:'Nunito',sans-serif; font-weight:800; font-size:0.74rem; text-decoration:underline; cursor:pointer; padding:2px 4px; }
 </style>
 </head>
 <body>
@@ -4163,6 +4174,7 @@ window.MoteurAdaptatif = {
   <div class="avatar-menu-prenom" id="avatarMenuPrenom"></div>
   <button onclick="menuAvatarAction('avatar')">🖼️ Changer d'avatar</button>
   <button id="menuBoutique" style="display:none" onclick="menuAvatarAction('boutique')">🛍️ Boutique</button>
+  <div id="menuObjectif" class="menu-objectif" style="display:none" onclick="menuAvatarAction('boutique')"></div>
   <button onclick="menuAvatarAction('progres')">⭐ Mes progrès</button>
   <button onclick="menuAvatarAction('deconnexion')">🚪 Déconnexion</button>
 </div>
@@ -4613,6 +4625,18 @@ function prixRarete(k, reg) { reg = reg || regRecomp || RECOMP_DEFAUT; return Ma
 function prixDe(base, reg) { return prixRarete(rareteDe(base, reg), reg); }
 function imgAvatar(id) { return AVATAR_IMGS[id] || SHOP_IMGS[id] || ''; }
 function nomAvatar(id) { const b = AV_CAT[idBase(id)]; return b ? (b['n' + id.slice(-1)] || b.n) : ''; }
+// Objectif de l'élève : avatar visé, avec le prix, le manque et l'avancement (null s'il n'y en a pas ou s'il est déjà acheté).
+function objectifInfo() {
+  const e = etatRecomp; if (!regRecomp || !e || !e.objectif || !avatarValide(e.objectif) || e.avatars.indexOf(e.objectif) >= 0) return null;
+  const prix = prixDe(idBase(e.objectif)), solde = soldeJetons();
+  return { id: e.objectif, nom: nomAvatar(e.objectif), prix, solde, manque: Math.max(0, prix - solde), atteint: solde >= prix, pct: Math.min(100, Math.round(solde * 100 / prix)) };
+}
+function objectifHtml(avecBouton) {
+  const o = objectifInfo(); if (!o) return '';
+  const barre = '<div class="barre"><div style="width:' + o.pct + '%"></div></div>';
+  if (o.atteint) return '<div class="obj-bloc atteint">🎯 Tu peux débloquer <b>' + o.nom + '</b> !' + barre + (avecBouton ? '<button class="btn btn-primary obj-btn" onclick="ouvrirBoutique()">🛍️ Boutique</button>' : '') + '</div>';
+  return '<div class="obj-bloc">🎯 <b>' + o.nom + '</b> : ' + o.solde + ' / ' + o.prix + ' · plus que ' + o.manque + ' jeton' + (o.manque > 1 ? 's' : '') + ' !' + barre + '</div>';
+}
 function soldeJetons() { return etatRecomp ? etatRecomp.gagnes - etatRecomp.depenses : 0; }
 function dateLocale(t) { const d = t ? new Date(t) : new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 function semaineISO(t) {
@@ -4672,6 +4696,10 @@ function majBoutiqueMenu() {
   const ok = !!(regRecomp && regRecomp.actif && etatRecomp);
   b.style.display = ok ? '' : 'none';
   if (ok) b.textContent = '🛍️ Boutique · 🪙 ' + soldeJetons();
+  const mo = document.getElementById('menuObjectif'); if (!mo) return;
+  const o = ok ? objectifInfo() : null;
+  if (o) { mo.innerHTML = '🎯 <b>' + o.nom + '</b> · ' + (o.atteint ? 'prêt à débloquer !' : o.solde + ' / ' + o.prix) + '<div class="barre"><div style="width:' + o.pct + '%"></div></div>'; mo.style.display = 'block'; }
+  else mo.style.display = 'none';
 }
 
 // Rattrapage unique : ce que le travail passé aurait rapporté (étoiles déjà remplies + historique des séances),
@@ -4762,16 +4790,19 @@ async function crediterRecompenses() {
 }
 function afficherGainJetons() {
   const el = document.getElementById('resJetons'); if (!el) return;
-  const g = (jetonsCredites === seanceId) ? dernierGain : null;
-  if (!g || (!g.total && !g.plafond && !g.entrReduit)) { el.style.display = 'none'; return; }
-  let h = '';
-  if (g.total) h += '<div class="gain-titre">🪙 +' + g.total + ' jeton' + (g.total > 1 ? 's' : '') + '</div>';
-  const d = []; if (g.bonusE) d.push('étoile' + (g.nbEt > 1 ? 's' : '') + ' : +' + g.bonusE); if (g.bonusR) d.push('régularité : +' + g.bonusR);
-  if (d.length) h += '<div class="gain-detail">dont ' + d.join(' · ') + '</div>';
-  if (g.plafond) h += '<div class="gain-detail">Tu as atteint la limite de jetons pour tes calculs d\'aujourd\'hui. Chaque étoile remplie rapporte encore un gros bonus !</div>';
-  else if (g.entrReduit) h += '<div class="gain-detail">Plus tu t\'entraînes dans la journée, moins chaque calcul rapporte de jetons, mais ça ne s\'arrête jamais.</div>';
-  else if (!g.entrainement && regRecomp) h += '<div class="gain-detail">Jetons du jour : ' + etatRecomp.gagnesJour + ' / ' + regRecomp.plafondJour + '</div>';
-  el.innerHTML = h + '<div class="gain-detail">Ton solde : ' + soldeJetons() + ' 🪙</div>'; el.style.display = 'block';
+  const g = (jetonsCredites === seanceId) ? dernierGain : null; let h = '';
+  if (g && (g.total || g.plafond || g.entrReduit)) {
+    if (g.total) h += '<div class="gain-titre">🪙 +' + g.total + ' jeton' + (g.total > 1 ? 's' : '') + '</div>';
+    const d = []; if (g.bonusE) d.push('étoile' + (g.nbEt > 1 ? 's' : '') + ' : +' + g.bonusE); if (g.bonusR) d.push('régularité : +' + g.bonusR);
+    if (d.length) h += '<div class="gain-detail">dont ' + d.join(' · ') + '</div>';
+    if (g.plafond) h += '<div class="gain-detail">Tu as atteint la limite de jetons pour tes calculs d\'aujourd\'hui. Chaque étoile remplie rapporte encore un gros bonus !</div>';
+    else if (g.entrReduit) h += '<div class="gain-detail">Plus tu t\'entraînes dans la journée, moins chaque calcul rapporte de jetons, mais ça ne s\'arrête jamais.</div>';
+    else if (!g.entrainement && regRecomp) h += '<div class="gain-detail">Jetons du jour : ' + etatRecomp.gagnesJour + ' / ' + regRecomp.plafondJour + '</div>';
+    h += '<div class="gain-detail">Ton solde : ' + soldeJetons() + ' 🪙</div>';
+  }
+  const ob = objectifHtml(true);
+  if (!h && !ob) { el.style.display = 'none'; return; }
+  el.innerHTML = h + ob; el.style.display = 'block';
 }
 
 // ---------- Élève : boutique ----------
@@ -4781,10 +4812,9 @@ function dessinerBoutique() {
   const reg = regRecomp, e = etatRecomp; if (!reg || !e) return;
   const solde = soldeJetons(), ob = document.getElementById('boutiqueObjectif');
   document.getElementById('boutiqueSolde').textContent = '🪙 ' + solde;
-  if (e.objectif && avatarValide(e.objectif) && e.avatars.indexOf(e.objectif) < 0) {
-    const p = prixDe(idBase(e.objectif));
-    ob.innerHTML = '🎯 Objectif : <b>' + nomAvatar(e.objectif) + '</b> · ' + Math.min(solde, p) + ' / ' + p + '<div class="barre"><div style="width:' + Math.min(100, Math.round(solde * 100 / p)) + '%"></div></div>';
-  } else ob.textContent = 'Touche un avatar verrouillé pour en faire ton objectif 🎯';
+  const o = objectifInfo();
+  if (o) ob.innerHTML = '🎯 Objectif : <b>' + o.nom + '</b> · ' + (o.atteint ? 'tu peux le débloquer !' : o.solde + ' / ' + o.prix) + '<div class="barre"><div style="width:' + o.pct + '%"></div></div><div class="obj-actions"><button class="obj-lien" onclick="changerObjectifInfo()">Changer</button><button class="obj-lien" onclick="retirerObjectif()">✕ Retirer</button></div>';
+  else ob.textContent = 'Touche un avatar verrouillé pour en faire ton objectif 🎯';
   const liste = document.getElementById('boutiqueListe'); liste.innerHTML = '';
   RAR_ORDRE.forEach(k => {
     const ids = [];
@@ -4803,12 +4833,27 @@ function dessinerBoutique() {
   });
 }
 function clicAvatarBoutique(id) {
-  const e = etatRecomp, prix = prixDe(idBase(id)), solde = soldeJetons(), nom = nomAvatar(id);
+  const e = etatRecomp, prix = prixDe(idBase(id)), solde = soldeJetons(), nom = nomAvatar(id), estObj = e.objectif === id, aUnObjectif = !!objectifInfo();
   if (e.avatars.indexOf(id) >= 0) { avatarEdition = id; fermerBoutique(); validerAvatar(); return; }
+  const retirer = { label: "Retirer l'objectif", action: f => { f(); retirerObjectif(); } };
   if (solde >= prix) afficherDialogue({ icone: '🛍️', titre: nom, texte: 'Débloquer cet avatar pour <b>' + prix + ' jetons</b> ?',
-    boutons: [{ label: 'Annuler', action: f => f() }, { label: 'Débloquer', primaire: true, action: f => { f(); acheterAvatar(id); } }] });
-  else afficherDialogue({ icone: '🔒', titre: nom, texte: 'Il te manque <b>' + (prix - solde) + ' jetons</b> pour cet avatar.',
-    boutons: [{ label: 'Fermer', action: f => f() }, { label: '🎯 Mon objectif', primaire: true, action: f => { f(); e.objectif = id; dessinerBoutique(); ecrireRecompenses(); } }] });
+    boutons: [{ label: 'Annuler', action: f => f() }].concat(estObj ? [retirer] : [], [{ label: 'Débloquer', primaire: true, action: f => { f(); acheterAvatar(id); } }]) });
+  else if (estObj) afficherDialogue({ icone: '🎯', titre: nom, texte: "C'est ton objectif : il te manque <b>" + (prix - solde) + ' jetons</b>.', boutons: [{ label: 'Fermer', action: f => f() }, retirer] });
+  else afficherDialogue({ icone: '🔒', titre: nom, texte: 'Il te manque <b>' + (prix - solde) + ' jetons</b> pour cet avatar.' + (aUnObjectif ? "<br>Ton objectif actuel est <b>" + nomAvatar(e.objectif) + '</b>.' : ''),
+    boutons: [{ label: 'Fermer', action: f => f() }, { label: aUnObjectif ? "🎯 Changer d'objectif" : '🎯 Mon objectif', primaire: true, action: f => { f(); definirObjectif(id); } }] });
+}
+function definirObjectif(id) {
+  const e = etatRecomp, avant = e.objectif; e.objectif = id; dessinerBoutique(); majBoutiqueMenu(); ecrireRecompenses();
+  const o = objectifInfo(); if (!o) return;
+  afficherDialogue({ icone: '🎯', titre: (avant && avant !== id) ? 'Objectif changé' : 'Objectif choisi',
+    texte: '<b>' + o.nom + '</b> : il te manque <b>' + o.manque + ' jeton' + (o.manque > 1 ? 's' : '') + "</b>. Je te dirai où tu en es à la fin de chaque séance !", boutons: [{ label: 'OK', primaire: true, action: f => f() }] });
+}
+function retirerObjectif() {
+  const e = etatRecomp; if (!e || !e.objectif) return;
+  e.objectif = ''; dessinerBoutique(); majBoutiqueMenu(); ecrireRecompenses();
+}
+function changerObjectifInfo() {
+  afficherDialogue({ icone: '🎯', titre: "Changer d'objectif", texte: "Touche un autre avatar verrouillé de la boutique, puis « Changer d'objectif ».", boutons: [{ label: 'OK', primaire: true, action: f => f() }] });
 }
 async function acheterAvatar(id) {
   const e = etatRecomp, prix = prixDe(idBase(id));
