@@ -851,7 +851,8 @@ body.cat-proport { --clr-active: #0652dd; }
 .boutique-overlay { position:fixed; inset:0; background:rgba(15,14,23,0.9); display:none; align-items:center; justify-content:center; z-index:245; padding:12px; }
 .boutique-overlay.open { display:flex; }
 .boutique-modal { background:var(--card); border-radius:22px; padding:16px; width:100%; max-width:470px; max-height:94vh; display:flex; flex-direction:column; }
-.boutique-tete { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.boutique-tete { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+.boutique-fermer { padding:6px 14px; font-size:0.82rem; flex-shrink:0; }
 .boutique-tete h2 { margin:0; font-family:'Fredoka One',cursive; font-weight:400; font-size:1.35rem; }
 .boutique-solde { font-weight:900; font-size:1.05rem; background:var(--surface); border-radius:999px; padding:5px 14px; }
 .boutique-objectif { font-size:0.8rem; color:var(--muted); font-weight:700; margin-bottom:6px; text-align:center; }
@@ -4184,10 +4185,9 @@ window.MoteurAdaptatif = {
 ===================================================== -->
 <div class="boutique-overlay" id="boutiqueOverlay" onclick="if(event.target===this)fermerBoutique()">
   <div class="boutique-modal">
-    <div class="boutique-tete"><h2>🛍️ Boutique</h2><div class="boutique-solde" id="boutiqueSolde">🪙 0</div></div>
+    <div class="boutique-tete"><h2>🛍️ Boutique</h2><button class="btn btn-secondary boutique-fermer" onclick="fermerBoutique()">✕ Fermer</button><div class="boutique-solde" id="boutiqueSolde">🪙 0</div></div>
     <div class="boutique-objectif" id="boutiqueObjectif"></div>
     <div class="boutique-liste" id="boutiqueListe"></div>
-    <button class="btn btn-secondary" style="margin-top:10px;" onclick="fermerBoutique()">Fermer</button>
   </div>
 </div>
 
