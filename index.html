@@ -565,7 +565,7 @@ body {
 .reg-temps-row .reg-auto { flex:1; color:var(--muted); font-weight:600; }
 .reg-temps-row input { width:84px; margin-bottom:0; padding:8px 10px; }
 .res-prog { text-align:center; font-weight:800; font-size:1.05rem; margin:4px 0 2px; width:100%; }
-.res-prog-ligne { display:flex; align-items:center; justify-content:space-between; gap:6px 12px; flex-wrap:wrap; text-align:left; }
+.res-prog-ligne { display:flex; align-items:center; justify-content:center; gap:6px 12px; flex-wrap:wrap; }
 .res-prog-up { color:var(--accent3); font-family:'Fredoka One',cursive; font-size:1.2rem; margin-bottom:2px; }
 .res-save { text-align:center; font-size:0.85rem; font-weight:700; color:var(--muted); margin:2px 0 10px; }
 .res-retry { margin-left:6px; padding:5px 14px; border-radius:50px; border:none; background:var(--accent2); color:#1a0000; font-family:Nunito,sans-serif; font-weight:800; cursor:pointer; }
@@ -686,7 +686,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 22px;
   margin: 6px 0 8px;
   width: 100%;
   flex-wrap: wrap;
@@ -694,8 +694,8 @@ body {
 .result-score-block {
   display: flex;
   flex-direction: row;
-  align-items: center;
-  gap: 10px;
+  align-items: baseline;   /* le % se pose sur la même ligne que la base des chiffres */
+  gap: 14px;
 }
 .result-pct { font-family: 'Fredoka One', cursive; font-size: clamp(1.1rem, 4vw, 1.5rem); color: var(--accent4); white-space: nowrap; }
 .result-fraction {
