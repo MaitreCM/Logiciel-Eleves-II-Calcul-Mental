@@ -4116,15 +4116,14 @@ window.MoteurAdaptatif = {
      ÉCRAN ENSEIGNANT : FICHE D'UN ÉLÈVE (étoiles par compétence)
 ===================================================== -->
 <div class="screen" id="sEnsEleve">
-  <div style="width:100%;max-width:480px;margin:0 auto;display:flex;justify-content:flex-end;">
-    <button class="btn btn-secondary" style="padding:9px 16px;font-size:0.85rem;" onclick="nav('EnsTableau','back')">← Retour au tableau</button>
-  </div>
-  <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:10px;">
-    <span class="avatar-rond avatar-ens" id="ensEleveAvatar" style="width:60px;height:60px;font-size:1.9rem;">🙂</span>
-    <div class="app-title" style="margin:0;font-size:1.8rem;" id="ensEleveTitre">Élève</div>
+  <div style="width:100%;max-width:480px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+    <button class="btn btn-secondary" style="padding:9px 16px;font-size:0.85rem;flex-shrink:0;" onclick="nav('EnsTableau','back')">← Retour au tableau</button>
+    <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+      <span class="avatar-rond avatar-ens" id="ensEleveAvatar" style="width:56px;height:56px;font-size:1.8rem;flex-shrink:0;">🙂</span>
+      <div class="app-title" style="margin:0;font-size:1.6rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="ensEleveTitre">Élève</div>
+    </div>
   </div>
   <div class="login-box" style="margin-top:12px;max-width:480px;">
-    <div class="progres-legende" id="ensEleveSous"></div>
     <div class="onglets-classes onglets-cat" id="ensEleveOnglets"></div>
     <div id="ensEleveListe" style="display:flex;flex-direction:column;gap:7px;"></div>
   </div>
@@ -6193,7 +6192,6 @@ async function ouvrirFicheEleve(eleve){
       if(jeton===jetonFiche) appliquerAvatar(elAvatarFiche,cacheAvatarsEleves[uidFiche]);
     });
   }
-  document.getElementById('ensEleveSous').textContent='identifiant : '+eleve.identifiant;
   const liste=document.getElementById('ensEleveListe');
   liste.innerHTML='<div class="progres-msg">⏳ Chargement…</div>';
   nav('EnsEleve','fwd');
