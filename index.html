@@ -392,6 +392,8 @@ body {
 .onglets-classes { display:flex; gap:8px; width:100%; overflow-x:auto; padding:2px 0 8px; margin:10px 0 12px; flex-shrink:0; }
 .onglet-classe { flex:0 0 auto; white-space:nowrap; padding:8px 16px; border-radius:50px; border:2px solid transparent; background:var(--card); color:var(--text); font-family:'Nunito',sans-serif; font-size:0.85rem; font-weight:700; cursor:pointer; transition:all 0.13s; }
 .onglet-classe:hover { background:var(--card2); }
+.onglets-cat { flex-wrap:wrap; justify-content:center; overflow-x:visible; margin:6px 0 10px; gap:6px; }
+.onglets-cat .onglet-classe { padding:7px 13px; font-size:0.8rem; }
 .onglet-classe.selected { border-color:var(--accent2); color:var(--accent2); }
 
 /* ========== GAME SCREEN ========== */
@@ -4114,14 +4116,17 @@ window.MoteurAdaptatif = {
      ÉCRAN ENSEIGNANT : FICHE D'UN ÉLÈVE (étoiles par compétence)
 ===================================================== -->
 <div class="screen" id="sEnsEleve">
-  <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:40px;">
+  <div style="width:100%;max-width:480px;margin:0 auto;display:flex;justify-content:flex-end;">
+    <button class="btn btn-secondary" style="padding:9px 16px;font-size:0.85rem;" onclick="nav('EnsTableau','back')">← Retour au tableau</button>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:10px;">
     <span class="avatar-rond avatar-ens" id="ensEleveAvatar" style="width:60px;height:60px;font-size:1.9rem;">🙂</span>
     <div class="app-title" style="margin:0;font-size:1.8rem;" id="ensEleveTitre">Élève</div>
   </div>
   <div class="login-box" style="margin-top:12px;max-width:480px;">
     <div class="progres-legende" id="ensEleveSous"></div>
+    <div class="onglets-classes onglets-cat" id="ensEleveOnglets"></div>
     <div id="ensEleveListe" style="display:flex;flex-direction:column;gap:7px;"></div>
-    <button class="btn btn-secondary" style="margin-top:20px;width:100%;" onclick="nav('EnsTableau','back')">← Retour au tableau</button>
   </div>
 </div>
 
@@ -6174,9 +6179,10 @@ function messageAvecBouton(texte,labelBouton,onclick){
 }
 
 // ---- Fiche d'un élève ----
-let jetonFiche=0, eleveFiche=null;
+let jetonFiche=0, eleveFiche=null, ficheProg=null, ficheCat=null;
 async function ouvrirFicheEleve(eleve){
-  eleveFiche=eleve;
+  eleveFiche=eleve; ficheProg=null; ficheCat=ORDRE_CATS[0];
+  document.getElementById('ensEleveOnglets').innerHTML='';
   const jeton=++jetonFiche;
   document.getElementById('ensEleveTitre').textContent=eleve.prenom;
   const uidFiche=eleve.uid||eleve.id, elAvatarFiche=document.getElementById('ensEleveAvatar');
@@ -6204,20 +6210,25 @@ async function ouvrirFicheEleve(eleve){
   }
 }
 function rendreFicheEleve(m){
-  const liste=document.getElementById('ensEleveListe');
-  liste.innerHTML='';
+  if(m) ficheProg=m;
+  const liste=document.getElementById('ensEleveListe'), onglets=document.getElementById('ensEleveOnglets');
+  liste.innerHTML=''; onglets.innerHTML='';
+  // Un onglet par type de calcul (addition, soustraction…) : on clique de l'un à l'autre, sans défilement
   ORDRE_CATS.forEach(cat=>{
-    const titre=document.createElement('div');
-    titre.className='autres-section-title'; titre.style.color=COULEURS_CAT[cat]; titre.textContent=CAT_NAMES[cat];
-    liste.appendChild(titre);
-    TYPES[cat].forEach(t=>{
-      const p=m[t.id]||{palier:1,compteur:0};
-      const row=document.createElement('div'); row.className='progres-row';
-      const nom=document.createElement('div'); nom.className='progres-nom'; nom.textContent=t.name.replace(/\n/g,' ');
-      const slot=document.createElement('span'); slot.className='etoiles-slot';
-      slot.innerHTML=etoilesHTML(p.palier,p.compteur,seuilDe(t.id));
-      row.appendChild(nom); row.appendChild(slot); liste.appendChild(row);
-    });
+    const b=document.createElement('button');
+    b.className='onglet-classe'+(cat===ficheCat?' selected':'');
+    b.textContent=CAT_NAMES[cat];
+    if(cat===ficheCat){ b.style.borderColor=COULEURS_CAT[cat]; b.style.color=COULEURS_CAT[cat]; }
+    b.onclick=()=>{ if(cat===ficheCat)return; ficheCat=cat; rendreFicheEleve(); };
+    onglets.appendChild(b);
+  });
+  TYPES[ficheCat].forEach(t=>{
+    const p=(ficheProg&&ficheProg[t.id])||{palier:1,compteur:0};
+    const row=document.createElement('div'); row.className='progres-row';
+    const nom=document.createElement('div'); nom.className='progres-nom'; nom.textContent=t.name.replace(/\n/g,' ');
+    const slot=document.createElement('span'); slot.className='etoiles-slot';
+    slot.innerHTML=etoilesHTML(p.palier,p.compteur,seuilDe(t.id));
+    row.appendChild(nom); row.appendChild(slot); liste.appendChild(row);
   });
 }
 
