@@ -4626,11 +4626,11 @@ const SHOP_IMGS={
 <script>
 // ================================================================
 // RÉCOMPENSES : JETONS, BOUTIQUE D'AVATARS, RÉGLAGES ENSEIGNANT
-// Jetons : bonnes réponses (plafond par jour, entraînement compris) + bonus de séance, puis bonus d'étoile
-// et de régularité HORS plafond. Stockage : recompenses/{uid} (élève) et recompensesReglages/{classeId} (enseignant).
+// Jetons : seules les bonnes réponses comptent dans le plafond par jour. Les bonus (séance réussie 80 %/90 %,
+// étoile remplie, régularité de la semaine) sont HORS plafond. Stockage : recompenses/{uid} (élève) et recompensesReglages/{classeId} (enseignant).
 // ================================================================
 const RAR_NOM = { C: 'Commun', R: 'Rare', E: 'Épique', L: 'Légendaire' }, RAR_ORDRE = ['C', 'R', 'E', 'L'];
-const RECOMP_DEFAUT = { actif: true, coefPrix: 1, prix: { C: 60, R: 160, E: 450, L: 800 }, repJeton: 1, entrainementDiv: 2, entrT1: 40, entrDiv2: 4, entrT2: 40, entrDiv3: 8, plafondJour: 400,
+const RECOMP_DEFAUT = { actif: true, coefPrix: 1, prix: { C: 60, R: 160, E: 450, L: 800 }, repJeton: 1, entrainementDiv: 2, entrT1: 40, entrDiv2: 4, entrT2: 40, entrDiv3: 8, plafondJour: 300,
   bonusSeance: 10, seuilSeance: 80, bonusSeance2: 20, seuilSeance2: 90, bonusSemaine: 40, joursSemaine: 3, bonusSemaine2: 80, joursSemaine2: 5, etoiles: [20, 40, 80, 140, 240, 500], rarete: {} };
 let regRecomp = null, etatRecomp = null, classeIdEleve = null, jetonsCredites = null, dernierGain = null;
 let regEns = null, statsEns = { owners: {}, visants: {} };
@@ -4642,7 +4642,7 @@ function recompFusion(d) {
   r.prix = {}; RAR_ORDRE.forEach(k => { r.prix[k] = nb(d.prix && d.prix[k], D.prix[k], 5, 100000); });
   r.repJeton = nb(d.repJeton, 1, 0, 50); r.entrainementDiv = nb(d.entrainementDiv, 2, 1, 100);
   r.entrT1 = nb(d.entrT1, 40, 0, 10000); r.entrDiv2 = nb(d.entrDiv2, 4, 1, 100); r.entrT2 = nb(d.entrT2, 40, 0, 10000); r.entrDiv3 = nb(d.entrDiv3, 8, 1, 100);
-  r.plafondJour = nb(d.plafondJour, 400, 0, 5000); r.bonusSeance = nb(d.bonusSeance, 10, 0, 500); r.seuilSeance = nb(d.seuilSeance, 80, 1, 100);
+  r.plafondJour = nb(d.plafondJour, 300, 0, 5000); r.bonusSeance = nb(d.bonusSeance, 10, 0, 500); r.seuilSeance = nb(d.seuilSeance, 80, 1, 100);
   r.bonusSeance2 = nb(d.bonusSeance2, 20, 0, 500); r.seuilSeance2 = nb(d.seuilSeance2, 90, 1, 100);
   r.bonusSemaine = nb(d.bonusSemaine, 40, 0, 5000); r.joursSemaine = nb(d.joursSemaine, 3, 1, 7);
   r.bonusSemaine2 = nb(d.bonusSemaine2, 80, 0, 5000); r.joursSemaine2 = nb(d.joursSemaine2, 5, 1, 7);
@@ -4749,19 +4749,19 @@ async function migrerRecompenses(uid) {
     if (acq > 0) payees[id] = acq;
     for (let k = 1; k <= acq; k++) total += Math.round(r.etoiles[k - 1]);
   });
-  const parJour = {}, semaines = {};
+  const parJour = {}, bonusJour = {}, semaines = {};
   try {
     const snap = await F.getDocs(F.collection(F.db, 'seances', uid, 'historique'));
     snap.forEach(sn => {
       const x = sn.data(), t = x.date && x.date.toDate ? x.date.toDate() : (x.date ? new Date(x.date) : null);
       if (!t || isNaN(t)) return;
       const j = dateLocale(t), rep = nb(x.nbQuestions, 0, 0, 1000), bon = nb(x.nbCorrectes, 0, 0, 1000);
-      let g = Math.floor(bon * r.repJeton) + bonusSeanceDe(bon, rep, r);
-      parJour[j] = (parJour[j] || 0) + g;
+      parJour[j] = (parJour[j] || 0) + Math.floor(bon * r.repJeton);          // seules les réponses sont plafonnées
+      bonusJour[j] = (bonusJour[j] || 0) + bonusSeanceDe(bon, rep, r);        // le bonus de séance est hors plafond
     });
   } catch (err) { console.warn('Historique illisible :', err); return false; }
   Object.keys(parJour).forEach(j => {
-    parJour[j] = Math.min(Math.floor(r.plafondJour), parJour[j]); total += parJour[j];
+    parJour[j] = Math.min(Math.floor(r.plafondJour), parJour[j]); total += parJour[j] + (bonusJour[j] || 0);
     const w = semaineISO(j + 'T12:00:00'); (semaines[w] = semaines[w] || []).push(j);
   });
   let montantCourant = 0;
@@ -4800,7 +4800,7 @@ async function crediterRecompenses() {
   const dispo = Math.max(0, r.plafondJour - e.gagnesJour);
   let sousPlafond;
   if (modeEntrainement) { sousPlafond = brut; e.bonnesEntrJour = nEntr + bonnes; } // entraînement : pas de plafond, gain dégressif
-  else { sousPlafond = Math.floor(Math.min(dispo, brut + bonusS)); e.gagnesJour += sousPlafond; }
+  else { sousPlafond = Math.floor(Math.min(dispo, brut)); e.gagnesJour += sousPlafond; } // le plafond ne compte que les jetons des réponses
   let bonusE = 0, nbEt = 0;
   if (!modeEntrainement) { // étoiles remplies pendant cette séance (jamais payées deux fois)
     const seuil = seuilDe(selTypeId), acq = etoilesAcquises(etatProg.palier, etatProg.compteur, seuil);
@@ -4813,9 +4813,9 @@ async function crediterRecompenses() {
   let bonusR = 0;
   const du = bonusSemaineDe(e.jours.length, r), paye = e.bonusSemaine === sem ? (e.bonusSemMontant || Math.round(r.bonusSemaine)) : 0;
   if (du > paye) { bonusR = du - paye; e.bonusSemaine = sem; e.bonusSemMontant = du; }
-  const total = sousPlafond + bonusE + bonusR;
+  const total = sousPlafond + bonusS + bonusE + bonusR;   // bonus de séance, étoiles et régularité : hors plafond
   e.gagnes += total;
-  dernierGain = { total, sousPlafond, bonusE, nbEt, bonusR, entrainement: modeEntrainement, plafond: !modeEntrainement && (brut + bonusS) > dispo, entrReduit: modeEntrainement && (nEntr + bonnes) > r.entrT1 };
+  dernierGain = { total, sousPlafond, bonusS, bonusE, nbEt, bonusR, entrainement: modeEntrainement, plafond: !modeEntrainement && brut > dispo, entrReduit: modeEntrainement && (nEntr + bonnes) > r.entrT1 };
   await ecrireRecompenses();
   majBoutiqueMenu();
   return dernierGain;
@@ -4825,9 +4825,9 @@ function afficherGainJetons() {
   const g = (jetonsCredites === seanceId) ? dernierGain : null; let h = '';
   if (g && (g.total || g.plafond || g.entrReduit)) {
     if (g.total) h += '<div class="gain-titre">🪙 +' + g.total + ' jeton' + (g.total > 1 ? 's' : '') + '</div>';
-    const d = []; if (g.bonusE) d.push('étoile' + (g.nbEt > 1 ? 's' : '') + ' : +' + g.bonusE); if (g.bonusR) d.push('régularité : +' + g.bonusR);
+    const d = []; if (g.bonusS) d.push('séance réussie : +' + g.bonusS); if (g.bonusE) d.push('étoile' + (g.nbEt > 1 ? 's' : '') + ' : +' + g.bonusE); if (g.bonusR) d.push('régularité : +' + g.bonusR);
     if (d.length) h += '<div class="gain-detail">dont ' + d.join(' · ') + '</div>';
-    if (g.plafond) h += '<div class="gain-detail">Tu as atteint la limite de jetons pour tes calculs d\'aujourd\'hui. Chaque étoile remplie rapporte encore un gros bonus !</div>';
+    if (g.plafond) h += '<div class="gain-detail">Tu as atteint la limite de jetons pour tes calculs d\'aujourd\'hui. Les bonus (séance réussie, étoiles, régularité) rapportent encore des jetons !</div>';
     else if (g.entrReduit) h += '<div class="gain-detail">Plus tu t\'entraînes dans la journée, moins chaque calcul rapporte de jetons, mais ça ne s\'arrête jamais.</div>';
     else if (!g.entrainement && regRecomp) h += '<div class="gain-detail">Jetons du jour : ' + etatRecomp.gagnesJour + ' / ' + regRecomp.plafondJour + '</div>';
     h += '<div class="gain-detail">Ton solde : ' + soldeJetons() + ' 🪙</div>';
@@ -4917,9 +4917,9 @@ function dessinerRecompensesEns() {
   h += '<div class="rc-champ"><span>Prix des avatars : <b id="rcCoefTxt">×' + r.coefPrix.toFixed(1) + '</b></span><input type="range" id="rcCoef" min="0.5" max="2" step="0.1" value="' + r.coefPrix + '" oninput="document.getElementById(\'rcCoefTxt\').textContent=\'×\'+Number(this.value).toFixed(1)"></div>';
   h += '<details class="rc-details"><summary>Réglages détaillés</summary><div class="rc-titre">Gains</div>'
     + ch('rcRep', 'Jetons par bonne réponse', r.repJeton, 0, 50, 0.5)
-    + ch('rcPlafond', 'Plafond par jour, calculs à son niveau (réponses + bonus de séance)', r.plafondJour, 0, 5000) + ch('rcBS', 'Bonus de séance réussie', r.bonusSeance, 0, 500)
+    + ch('rcPlafond', 'Plafond de jetons par jour (uniquement les jetons gagnés en répondant aux calculs ; les bonus sont en plus)', r.plafondJour, 0, 5000) + ch('rcBS', 'Bonus de séance réussie (hors plafond)', r.bonusSeance, 0, 500)
     + ch('rcSeuil', '… à partir de (% de réussite)', r.seuilSeance, 1, 100)
-    + ch('rcBS2', 'Bonus de séance excellente (remplace le précédent)', r.bonusSeance2, 0, 500) + ch('rcSeuil2', '… à partir de (% de réussite)', r.seuilSeance2, 1, 100) + ch('rcBW', 'Bonus de régularité (par semaine)', r.bonusSemaine, 0, 5000)
+    + ch('rcBS2', 'Bonus de séance excellente (remplace le précédent)', r.bonusSeance2, 0, 500) + ch('rcSeuil2', '… à partir de (% de réussite)', r.seuilSeance2, 1, 100) + ch('rcBW', 'Bonus de régularité (par semaine, hors plafond)', r.bonusSemaine, 0, 5000)
     + ch('rcJW', '… pour ce nombre de jours travaillés', r.joursSemaine, 1, 7)
     + ch('rcBW2', 'Bonus de régularité renforcée (total de la semaine)', r.bonusSemaine2, 0, 5000) + ch('rcJW2', '… pour ce nombre de jours travaillés', r.joursSemaine2, 1, 7)
     + '<div class="rc-titre">Entraînement (le gain diminue dans la journée, sans jamais s\'arrêter)</div>'
