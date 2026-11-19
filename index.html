@@ -564,7 +564,8 @@ body {
 .reg-temps-row .reg-p { width:62px; flex-shrink:0; }
 .reg-temps-row .reg-auto { flex:1; color:var(--muted); font-weight:600; }
 .reg-temps-row input { width:84px; margin-bottom:0; padding:8px 10px; }
-.res-prog { text-align:center; font-weight:800; font-size:1.05rem; margin:6px 0 4px; }
+.res-prog { text-align:center; font-weight:800; font-size:1.05rem; margin:4px 0 2px; width:100%; }
+.res-prog-ligne { display:flex; align-items:center; justify-content:space-between; gap:6px 12px; flex-wrap:wrap; text-align:left; }
 .res-prog-up { color:var(--accent3); font-family:'Fredoka One',cursive; font-size:1.2rem; margin-bottom:2px; }
 .res-save { text-align:center; font-size:0.85rem; font-weight:700; color:var(--muted); margin:2px 0 10px; }
 .res-retry { margin-left:6px; padding:5px 14px; border-radius:50px; border:none; background:var(--accent2); color:#1a0000; font-family:Nunito,sans-serif; font-weight:800; cursor:pointer; }
@@ -685,16 +686,18 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 24px;
-  margin: 14px 0 20px;
+  gap: 14px;
+  margin: 6px 0 8px;
   width: 100%;
+  flex-wrap: wrap;
 }
 .result-score-block {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
 }
+.result-pct { font-family: 'Fredoka One', cursive; font-size: clamp(1.1rem, 4vw, 1.5rem); color: var(--accent4); white-space: nowrap; }
 .result-fraction {
   display: flex;
   align-items: center;
@@ -703,7 +706,7 @@ body {
 }
 .result-num {
   font-family: 'Fredoka One', cursive;
-  font-size: clamp(3.5rem, 13vw, 5.5rem);
+  font-size: clamp(2.6rem, 11vw, 4.6rem);
   background: linear-gradient(135deg, var(--accent1), var(--accent2));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -711,7 +714,7 @@ body {
 }
 .result-slash {
   font-family: 'Fredoka One', cursive;
-  font-size: clamp(3.5rem, 13vw, 5.5rem);
+  font-size: clamp(2.6rem, 11vw, 4.6rem);
   background: linear-gradient(135deg, var(--accent1), var(--accent2));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -719,7 +722,7 @@ body {
 }
 .result-den {
   font-family: 'Fredoka One', cursive;
-  font-size: clamp(3.5rem, 13vw, 5.5rem);
+  font-size: clamp(2.6rem, 11vw, 4.6rem);
   background: linear-gradient(135deg, var(--accent1), var(--accent2));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -731,7 +734,7 @@ body {
 .stat-card { background: var(--card); border-radius: 12px; padding: 12px 8px; text-align: center; }
 .stat-val { font-size: 1.6rem; font-weight: 800; }
 .stat-lbl { font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-top: 2px; }
-.review-list { width: 100%; display: flex; flex-direction: column; gap: 5px; margin-bottom: 18px; max-height: 160px; overflow-y: auto; }
+.review-list { width: 100%; display: flex; flex-direction: column; gap: 5px; margin-bottom: 18px; max-height: 300px; overflow-y: auto; }
 .review-item { display: flex; align-items: center; justify-content: space-between; background: var(--card); border-radius: 11px; padding: 12px 16px; font-size: 1.4rem; gap: 10px; }
 .review-q { font-weight: 700; flex: 1; font-size: 1.4rem; }
 .review-given { font-weight: 800; font-size: 1.4rem; }
@@ -888,7 +891,8 @@ body.cat-proport { --clr-active: #0652dd; }
 .boutique-item.verrou .vig::after { content:'🔒'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:1.3rem; }
 .boutique-item.possede { border-color:var(--accent3); }
 .boutique-item.objectif { border-color:var(--accent2); }
-.res-jetons { text-align:center; margin:8px 0; }
+.res-jetons { text-align:center; margin:4px 0; }
+.res-jetons .gain-ligne { display:flex; align-items:baseline; justify-content:center; flex-wrap:wrap; gap:2px 14px; }
 .res-jetons .gain-titre { font-family:'Fredoka One',cursive; font-size:1.3rem; color:var(--accent2); }
 .res-jetons .gain-detail { font-size:0.8rem; color:var(--muted); font-weight:700; margin-top:2px; }
 .rc-champ { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:8px 0; font-size:0.85rem; font-weight:700; }
@@ -4431,18 +4435,13 @@ window.MoteurAdaptatif = {
         <span class="result-slash">/</span>
         <span class="result-den" id="resDen">10</span>
       </div>
+      <span class="result-pct" id="stPct">0%</span>
     </div>
     <!-- Smiley + commentaire à droite sur la même ligne -->
     <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
-      <svg id="resSvg" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style="width:90px;height:90px;flex-shrink:0;"></svg>
+      <svg id="resSvg" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style="width:72px;height:72px;flex-shrink:0;"></svg>
       <div class="result-label" id="resLabel" style="font-size:1rem;font-weight:800;color:var(--text);white-space:nowrap;">Bravo !</div>
     </div>
-  </div>
-  <div class="stats-grid">
-    <div class="stat-card"><div class="stat-val" style="color:var(--accent3)" id="stCorrect">0</div><div class="stat-lbl">Correctes</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--accent1)" id="stWrong">0</div><div class="stat-lbl">Erreurs</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--accent2)" id="stSkip">0</div><div class="stat-lbl">Sans réponse</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--accent4)" id="stPct">0%</div><div class="stat-lbl">Réussite</div></div>
   </div>
   <div class="res-prog" id="resProg" style="display:none;"></div>
   <div class="res-jetons" id="resJetons" style="display:none;"></div>
@@ -4824,13 +4823,15 @@ function afficherGainJetons() {
   const el = document.getElementById('resJetons'); if (!el) return;
   const g = (jetonsCredites === seanceId) ? dernierGain : null; let h = '';
   if (g && (g.total || g.plafond || g.entrReduit)) {
-    if (g.total) h += '<div class="gain-titre">🪙 +' + g.total + ' jeton' + (g.total > 1 ? 's' : '') + '</div>';
+    let ligne = '';
+    if (g.total) ligne += '<span class="gain-titre">🪙 +' + g.total + ' jeton' + (g.total > 1 ? 's' : '') + '</span>';
+    if (!g.entrainement && regRecomp) ligne += '<span class="gain-detail">Jetons du jour : ' + etatRecomp.gagnesJour + ' / ' + regRecomp.plafondJour + '</span>';
+    ligne += '<span class="gain-detail">Solde : ' + soldeJetons() + ' 🪙</span>';
+    h += '<div class="gain-ligne">' + ligne + '</div>';
     const d = []; if (g.bonusS) d.push('séance réussie : +' + g.bonusS); if (g.bonusE) d.push('étoile' + (g.nbEt > 1 ? 's' : '') + ' : +' + g.bonusE); if (g.bonusR) d.push('régularité : +' + g.bonusR);
     if (d.length) h += '<div class="gain-detail">dont ' + d.join(' · ') + '</div>';
     if (g.plafond) h += '<div class="gain-detail">Tu as atteint la limite de jetons pour tes calculs d\'aujourd\'hui. Les bonus (séance réussie, étoiles, régularité) rapportent encore des jetons !</div>';
     else if (g.entrReduit) h += '<div class="gain-detail">Plus tu t\'entraînes dans la journée, moins chaque calcul rapporte de jetons, mais ça ne s\'arrête jamais.</div>';
-    else if (!g.entrainement && regRecomp) h += '<div class="gain-detail">Jetons du jour : ' + etatRecomp.gagnesJour + ' / ' + regRecomp.plafondJour + '</div>';
-    h += '<div class="gain-detail">Ton solde : ' + soldeJetons() + ' 🪙</div>';
   }
   const ob = objectifHtml(true);
   if (!h && !ob) { el.style.display = 'none'; return; }
@@ -8201,17 +8202,15 @@ function afficherBilanProgression(){
   const el=document.getElementById('resProg'); if(!el)return;
   const seuil=MoteurAdaptatif.resoudreReglage(selTypeId,'seuilProgression',reglagesActifs);
   if(modeEntrainement){
-    el.innerHTML='<div style="font-weight:800;margin-bottom:6px;">💪 Entraînement : '+listeNiveauxTexte(niveauxEntrainement)+'</div>'
-      +'<div style="display:flex;justify-content:center;margin:4px 0;">'+etoilesHTML(etatProg.palier,etatProg.compteur,seuil,26)+'</div>'
-      +'<div>Tes étoiles n\'ont pas changé.</div>';
+    el.innerHTML='<div style="font-weight:800;margin-bottom:4px;">💪 Entraînement : '+listeNiveauxTexte(niveauxEntrainement)+'</div>'
+      +'<div class="res-prog-ligne"><span>Tes étoiles n\'ont pas changé.</span><span style="display:flex;">'+etoilesHTML(etatProg.palier,etatProg.compteur,seuil,22)+'</span></div>';
     el.style.display='block'; return;
   }
   let html='';
   if(etatProg.palier>etatDebut.palier) html+=`<div class="res-prog-up"><span id="cornetConfettis" style="display:inline-block;">🎉</span> Bravo, tu passes au palier ${etatProg.palier} !</div>`;
   const sixieme=etatDebut.palier===6&&etatProg.palier===6&&etatDebut.compteur<seuil&&etatProg.compteur>=seuil;
   if(sixieme) html+=`<div class="res-prog-up"><span id="cornetConfettis" style="display:inline-block;">🎉</span> Bravo, ta 6e étoile est pleine !</div>`;
-  html+=`<div style="display:flex;justify-content:center;margin:4px 0;">${etoilesHTML(etatProg.palier,etatProg.compteur,seuil,26)}</div>`;
-  html+=`<div>Palier ${etatProg.palier} · ${fmt(etatProg.compteur)} / ${fmt(seuil)} points</div>`;
+  html+=`<div class="res-prog-ligne"><span>Palier ${etatProg.palier} · ${fmt(etatProg.compteur)} / ${fmt(seuil)} points</span><span style="display:flex;">${etoilesHTML(etatProg.palier,etatProg.compteur,seuil,22)}</span></div>`;
   el.innerHTML=html; el.style.display='block';
   // Étoile passée (palier gagné, ou 6e étoile remplie) : confettis, une seule fois par séance
   if((etatProg.palier>etatDebut.palier||sixieme)&&confettisSeance!==seanceId){ confettisSeance=seanceId; setTimeout(lancerConfettis,350); }
@@ -8604,9 +8603,6 @@ function endGame(){
   document.getElementById('resDen').textContent=total;
   document.getElementById('resLabel').textContent=pct>=90?'Bravo !':pct>=70?'Bien !':pct>=40?'Continue !':'Courage !';
   drawResultSvg(pct);
-  document.getElementById('stCorrect').textContent=correct;
-  document.getElementById('stWrong').textContent=wrong;
-  document.getElementById('stSkip').textContent=skip;
   document.getElementById('stPct').textContent=pct+'%';
 
   const list=document.getElementById('reviewList');
