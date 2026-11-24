@@ -1987,13 +1987,37 @@ const paliersConfigSoustractions = {
     { nb1Max: 1000, nb2Max: 1000,   chiffres: [8,9], finConstraint: 'both'  },
   ],
 
+  // Soustraire 1 entier : chaque niveau est un MÉLANGE pondéré de recettes (poids en %).
+  // a et b sont les bornes INCLUSES de chaque nombre ; le résultat a − b est toujours positif (b < a).
+  // retenue : 'aucune' (0), 'simple' (exactement 1), 'unOuDeux' (1 ou 2), 'plusieurs' (2 ou plus).
   soustraire1EntierA1: [
-    { maxA: 100,   retenue: 'aucune'    },
-    { maxA: 1000,  retenue: 'aucune'    },
-    { maxA: 100,   retenue: 'simple'    },
-    { maxA: 1000,  retenue: 'simple'    },
-    { maxA: 1000,  retenue: 'plusieurs' },
-    { maxA: 10000, retenue: 'plusieurs' },
+    { mix: [
+      { poids: 25, a: [3, 19], b: [2, 19], retenue: 'aucune' },
+      { poids: 75, a: [11, 99], b: [2, 99], retenue: 'aucune' },
+    ] },
+    { mix: [
+      { poids: 50, a: [11, 999], b: [2, 99], retenue: 'aucune' },
+      { poids: 50, a: [11, 999], b: [11, 999], retenue: 'aucune' },
+    ] },
+    { mix: [
+      { poids: 50, a: [2, 99], b: [2, 99], retenue: 'simple' },
+      { poids: 50, a: [11, 999], b: [11, 999], retenue: 'aucune' },
+    ] },
+    { mix: [
+      { poids: 35, a: [2, 99], b: [2, 99], retenue: 'simple' },
+      { poids: 40, a: [101, 499], b: [11, 99], retenue: 'simple' },
+      { poids: 25, a: [11, 999], b: [11, 999], retenue: 'aucune' },
+    ] },
+    { mix: [
+      { poids: 45, a: [11, 999], b: [11, 99], retenue: 'unOuDeux' },
+      { poids: 45, a: [101, 999], b: [101, 999], retenue: 'unOuDeux' },
+      { poids: 10, a: [101, 999], b: [11, 999], retenue: 'aucune' },
+    ] },
+    { mix: [
+      { poids: 30, a: [101, 999], b: [101, 999], retenue: 'unOuDeux' },
+      { poids: 30, a: [1001, 9999], b: [101, 999], retenue: 'plusieurs' },
+      { poids: 40, a: [1001, 9999], b: [1001, 9999], retenue: 'plusieurs' },
+    ] },
   ],
 
   soustraire2EntiersA1: [
@@ -2107,7 +2131,21 @@ function genSoustractionNTermes(nTermes) {
     return { text: `${a} - ${termes.join(' - ')}`, answer: a - termes.reduce((s, n) => s + n, 0) };
   };
 }
-const genSoustraire1EntierA1 = genSoustractionNTermes(1);
+// Soustraire 1 entier : tire une recette selon les poids du niveau, puis un couple (a, b) qui respecte les bornes,
+// avec b < a (résultat positif) et le type de retenue demandé.
+function genSoustraire1EntierA1(config) {
+  const variantes = config.mix;
+  let tirage = Math.random() * variantes.reduce((s, v) => s + v.poids, 0);
+  let v = variantes[variantes.length - 1];
+  for (const x of variantes) { if (tirage < x.poids) { v = x; break; } tirage -= x.poids; }
+  const fabrique = () => {
+    const a = randInt(Math.max(v.a[0], v.b[0] + 1), v.a[1]);   // a doit pouvoir être plus grand que b
+    const b = randInt(v.b[0], Math.min(v.b[1], a - 1));
+    return { a, b, borrows: countBorrows(a, b) };
+  };
+  const { a, b } = tirageAvecCondition(fabrique, r => matchesEmprunt(r.borrows, v.retenue), 3000);
+  return { text: `${a} - ${b}`, answer: a - b };
+}
 const genSoustraire2EntiersA1 = genSoustractionNTermes(2);
 const genSoustraire3EntiersA1 = genSoustractionNTermes(3);
 
