@@ -464,6 +464,7 @@ body {
   margin-bottom: 16px;
   width: 100%;
 }
+.calcul-etoiles { margin-left:12px; font-size:0.62em; letter-spacing:1px; vertical-align:middle; white-space:nowrap; }
 .calcul-label {
   font-family: 'Fredoka One', cursive;
   font-size: clamp(1.4rem, 5vw, 2rem);
@@ -858,6 +859,9 @@ body.cat-proport { --clr-active: #0652dd; }
 .boutique-modal { background:var(--card); border-radius:22px; padding:16px; width:100%; max-width:470px; max-height:94vh; display:flex; flex-direction:column; }
 .avatar-bloc { position:absolute; top:12px; right:14px; z-index:5; display:flex; flex-direction:column; align-items:center; gap:4px; max-width:100px; }
 .avatar-bloc .avatar-btn { position:static; }
+.s3-entete { width:100%; display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:14px; }
+.s3-entete .btn-back { margin-bottom:0; }
+.s3-entete .avatar-bloc { position:static; }
 .app-header .avatar-bloc { position:static; justify-self:end; min-width:0; }
 .deco-mini { font-family:'Nunito',sans-serif; font-weight:800; font-size:0.66rem; color:var(--muted); background:none; border:1px solid var(--muted); border-radius:50px; padding:3px 9px; cursor:pointer; line-height:1.2; white-space:nowrap; }
 .deco-mini:hover { color:var(--text); border-color:var(--text); }
@@ -4318,11 +4322,13 @@ window.MoteurAdaptatif = {
      ÉCRAN 3 : NIVEAU + RÉGLAGES
 ===================================================== -->
 <div class="screen" id="s3">
-  <div class="avatar-bloc"><button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
-    <span class="avatar-rond">🙂</span><span class="avatar-prenom"></span>
-  </button><button class="deco-mini" onclick="deconnecterEleve()">Déconnexion</button></div>
-  <button class="btn-back" onclick="goBackFromS3()">← Retour</button>
-  <div class="app-title" style="font-size:1.5rem; margin-bottom:16px;">Combien de calculs ?</div>
+  <div class="s3-entete">
+    <button class="btn-back" onclick="goBackFromS3()">← Retour</button>
+    <div class="avatar-bloc"><button class="avatar-btn" onclick="toggleMenuAvatar(this,event)" title="Mon menu" aria-label="Mon menu">
+      <span class="avatar-rond">🙂</span><span class="avatar-prenom"></span>
+    </button><button class="deco-mini" onclick="deconnecterEleve()">Déconnexion</button></div>
+  </div>
+  <div class="app-title" id="s3Titre" style="font-size:1.5rem; margin-bottom:16px;">Combien de calculs ?</div>
 
   <div class="settings-box">
     <div class="settings-row">
@@ -4361,7 +4367,7 @@ window.MoteurAdaptatif = {
 
   <!-- Timer + Calcul X/Y side by side -->
   <div class="timer-row">
-    <div class="calcul-label" id="calculLabel">Calcul 1/10</div>
+    <div class="calcul-label"><span id="calculLabel">Calcul 1/10</span><span class="calcul-etoiles" id="calculEtoiles" aria-label="Niveau"></span></div>
   </div>
 
   <!-- Standard question card -->
@@ -6661,6 +6667,10 @@ function renderTypeGrid(cat) {
 function selectType(tid) {
   if(!calculActif(tid)) return;
   selTypeId=tid; selSubIdx=0;
+  { // le titre de l'écran suivant est le nom du calcul choisi
+    const t=(TYPES[selCat]||[]).find(x=>x.id===tid);
+    document.getElementById('s3Titre').textContent=t?t.name.replace(/\n/g,' '):'Combien de calculs ?';
+  }
   s3Origin = 2; // retour depuis s3 → s2
   document.querySelectorAll('.type-card').forEach(el=>{
     el.classList.toggle('selected',el.dataset.tid===tid);
@@ -8055,6 +8065,7 @@ function genererQuestion(){
   const niv=niveauPourQuestion();
   for(let i=0;i<60;i++){
     q=adapterQuestion(MoteurCM.genQ(selTypeId, niv), selTypeId, niv);
+    q._niv=niv;   // niveau (nombre d'étoiles) de cette question, affiché à côté de « Calcul x/y »
     const k=cleDedoublonnage(q);
     if(!seenKeys.has(k)){ seenKeys.add(k); return q; }
   }
@@ -8391,6 +8402,7 @@ function showQuestion(){
   document.getElementById('gScore').textContent=score;
   document.getElementById('progressFill').style.width=(curQ/nbQ*100)+'%';
   document.getElementById('calculLabel').textContent='Calcul '+(curQ+1)+'/'+nbQ;
+  document.getElementById('calculEtoiles').textContent=q._niv?'⭐'.repeat(q._niv):'';
 
   const isMaison = q.isMaison;
   const isFrac = q.isFrac;
