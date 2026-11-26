@@ -6321,7 +6321,7 @@ function htmlEvaluation(qs,classe,intitule){
   const ECART=8, LARGEUR_UTILE=180;
   const colonnes=Math.max(...qs.map(besoinMm))*1.03+1 <= (LARGEUR_UTILE-2*ECART)/3 ? 3 : 2;
   const grille=avecRep=>'<div class="grille" style="grid-template-columns:repeat('+colonnes+',1fr);--h:'+(colonnes===3?18:12)+'mm;--fs:14pt">'+qs.map(q=>'<div class="cell">'+cellule(q,avecRep)+'</div>').join('')+'</div>';
-  const ident='<div class="ident"><span>NOM : <i></i></span><span>Prénom : <i></i></span><span>Date : <i class="court"></i></span></div>';
+  const ident='<div class="ident"><span>NOM : <i></i></span><span>Prénom : <i></i></span><span class="d">Date : <i></i></span></div>';
   const titre='EVALUATION DE MATHEMATIQUES'+(classe?' '+echapperHtml(classe):'');
   const sous='Calcul mental'+(intitule?' : '+echapperHtml(intitule):'');
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -6333,18 +6333,19 @@ body{margin:0;background:#e9e9ee;font-family:Arial,Helvetica,sans-serif;color:#0
 .barre{position:sticky;top:0;z-index:5;background:#222;color:#fff;padding:10px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:14px}
 .barre button{background:#6bcb77;color:#102a14;border:0;border-radius:20px;padding:9px 18px;font-weight:700;font-size:14px;cursor:pointer}
 .feuille{background:#fff;width:210mm;height:296mm;margin:14px auto;padding:10mm 15mm 10mm;overflow:hidden;page-break-after:always;box-shadow:0 2px 10px rgba(0,0,0,.25)}
-.ident{display:flex;justify-content:space-between;gap:8mm;font-size:12pt;margin-bottom:22mm}
-.ident i{display:inline-block;width:46mm;border-bottom:1px solid #000;height:1em;vertical-align:baseline}
-.ident i.court{width:30mm}
+.ident{display:flex;justify-content:space-between;gap:8mm;font-size:12pt;margin-bottom:16mm}
+.ident span{display:flex;align-items:baseline;flex:3 1 0;white-space:nowrap}
+.ident span.d{flex:2 1 0}
+.ident i{display:block;flex:1;height:0;border-bottom:1px solid #000;margin-left:2mm}
 h1{text-align:center;font-size:17pt;margin:0 0 3mm}
-h2{text-align:center;font-size:13pt;font-weight:normal;margin:0 0 8mm}
+h2{text-align:center;font-size:13pt;font-weight:normal;margin:0 0 14mm}
 .corr{text-align:center;font-size:15pt;font-weight:bold;letter-spacing:3px;margin:0 0 4mm}
 .res{text-align:right;font-size:12pt;font-weight:bold;margin:0 0 6mm}
 .consigne{font-size:12pt;margin:0 0 12mm}
 .grille{display:grid;grid-template-columns:repeat(3,1fr);column-gap:8mm}
 .cell{font-size:var(--fs,14pt);height:var(--h,19mm);display:flex;align-items:center;white-space:nowrap}
 .rep{display:inline-block;min-width:20mm;margin:0 1.5mm 0 2mm;border-bottom:1px dotted #555;text-align:center;font-weight:bold}
-.feuille.cor{padding-top:18mm}
+.feuille.cor{padding-top:12mm}
 .cor .rep{color:#23924a;border-bottom-color:#23924a}
 .bas{margin-top:6mm}
 @media print{body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.barre{display:none}.feuille{margin:0;box-shadow:none}.feuille:last-child{page-break-after:auto}}
