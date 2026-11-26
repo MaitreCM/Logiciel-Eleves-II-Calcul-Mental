@@ -6312,41 +6312,40 @@ function htmlEvaluation(qs,classe,intitule){
   };
   // 3 colonnes comme sur ton modèle ; 2 colonnes si certains calculs sont longs (ex. 4 termes) pour qu'ils tiennent
   const colonnes=qs.some(q=>q.text.length>19)?2:3;
-  const grille=avecRep=>'<div class="grille" style="grid-template-columns:repeat('+colonnes+',1fr);--h:'+(colonnes===3?19:12)+'mm;--fs:'+(colonnes===3?16:15)+'pt">'+qs.map(q=>'<div class="cell">'+cellule(q,avecRep)+'</div>').join('')+'</div>';
+  const grille=avecRep=>'<div class="grille" style="grid-template-columns:repeat('+colonnes+',1fr);--h:'+(colonnes===3?18:12)+'mm;--fs:'+(colonnes===3?16:15)+'pt">'+qs.map(q=>'<div class="cell">'+cellule(q,avecRep)+'</div>').join('')+'</div>';
   const ident='<div class="ident"><span>NOM : <i></i></span><span>Prénom : <i></i></span><span>Date : <i class="court"></i></span></div>';
   const titre='EVALUATION DE MATHEMATIQUES'+(classe?' '+echapperHtml(classe):'');
   const sous='Calcul mental'+(intitule?' : '+echapperHtml(intitule):'');
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Évaluation — ${echapperHtml(intitule||'Calcul mental')}</title>
 <style>
-@page{size:A4;margin:12mm 14mm}
+@page{size:A4;margin:0}
 *{box-sizing:border-box}
 body{margin:0;background:#e9e9ee;font-family:Arial,Helvetica,sans-serif;color:#000}
 .barre{position:sticky;top:0;z-index:5;background:#222;color:#fff;padding:10px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:14px}
 .barre button{background:#6bcb77;color:#102a14;border:0;border-radius:20px;padding:9px 18px;font-weight:700;font-size:14px;cursor:pointer}
-.feuille{background:#fff;width:210mm;min-height:297mm;margin:14px auto;padding:12mm 14mm;page-break-after:always;box-shadow:0 2px 10px rgba(0,0,0,.25)}
-.ident{display:flex;justify-content:space-between;gap:8mm;font-size:11pt;margin-bottom:8mm}
+.feuille{background:#fff;width:210mm;height:296mm;margin:14px auto;padding:18mm 15mm 10mm;overflow:hidden;page-break-after:always;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.ident{display:flex;justify-content:space-between;gap:8mm;font-size:11pt;margin-bottom:14mm}
 .ident i{display:inline-block;width:46mm;border-bottom:1px solid #000;height:1em;vertical-align:baseline}
 .ident i.court{width:30mm}
-h1{text-align:center;font-size:17pt;margin:0 0 2mm}
-h2{text-align:center;font-size:13pt;font-weight:normal;margin:0 0 5mm}
+h1{text-align:center;font-size:17pt;margin:0 0 3mm}
+h2{text-align:center;font-size:13pt;font-weight:normal;margin:0 0 8mm}
 .corr{text-align:center;font-size:15pt;font-weight:bold;letter-spacing:3px;margin:0 0 4mm}
-.res{text-align:right;font-size:12pt;font-weight:bold;margin:0 0 5mm}
-.consigne{font-size:12pt;margin:0 0 6mm}
+.res{text-align:right;font-size:12pt;font-weight:bold;margin:0 0 6mm}
+.consigne{font-size:12pt;margin:0 0 12mm}
 .grille{display:grid;grid-template-columns:repeat(3,1fr);column-gap:6mm}
 .cell{font-size:var(--fs,16pt);height:var(--h,19mm);display:flex;align-items:center;white-space:nowrap}
 .rep{display:inline-block;min-width:20mm;margin:0 1.5mm 0 2mm;border-bottom:1px dotted #555;text-align:center;font-weight:bold}
-.cor .rep{color:#b00020;border-bottom-color:#b00020}
+.cor .rep{color:#0f6b2a;border-bottom-color:#0f6b2a}
 .bas{margin-top:6mm}
-@media print{body{background:#fff}.barre{display:none}.feuille{margin:0;padding:0;width:auto;min-height:0;box-shadow:none}.feuille:last-child{page-break-after:auto}}
+@media print{body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.barre{display:none}.feuille{margin:0;box-shadow:none}.feuille:last-child{page-break-after:auto}}
 </style></head><body>
 <div class="barre"><button onclick="window.print()">🖨️ Imprimer / Enregistrer en PDF</button>
 <span>Page 1 : l'évaluation · Page 2 : la correction. Dans la fenêtre d'impression, choisis « Enregistrer au format PDF » comme imprimante.</span></div>
 <div class="feuille">${ident}<h1>${titre}</h1><h2>${sous}</h2>
 <div class="res">Résultat : ........ / ${qs.length}</div>
 <div class="consigne">Effectue de tête les calculs suivants :</div>
-${grille(false)}
-<div class="bas">${ident}</div></div>
+${grille(false)}</div>
 <div class="feuille cor"><h1>${titre}</h1><h2>${sous}</h2>
 <div class="corr">CORRECTION</div>
 <div class="consigne">Effectue de tête les calculs suivants :</div>
