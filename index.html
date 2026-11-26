@@ -4062,6 +4062,7 @@ window.MoteurAdaptatif = {
     <div class="admin-statut" id="adminStatut"></div>
     <div style="margin-top:14px;font-weight:800;margin-bottom:10px;">Créer un enseignant</div>
     <input type="text" class="login-field" id="adminNouvelId" placeholder="Identifiant (ex : Dupont)" autocomplete="off" autocorrect="off" spellcheck="false">
+    <div style="font-size:0.8rem;color:var(--muted);font-weight:700;margin:-4px 0 10px;">⚠️ Vérifie bien l'orthographe : l'identifiant ne pourra plus être modifié après la création du compte.</div>
     <div style="display:flex;gap:8px;align-items:flex-start;">
       <input type="text" class="login-field" id="adminNouveauMdp" placeholder="Mot de passe (ex : 45FG32)" autocomplete="off" autocorrect="off" spellcheck="false" style="font-family:monospace;letter-spacing:1px;">
       <button class="btn btn-secondary" style="padding:13px 16px;" title="Générer un autre mot de passe" onclick="adminRegenererMotDePasse()">🎲</button>
@@ -4113,6 +4114,7 @@ window.MoteurAdaptatif = {
     <div style="margin-top:20px;">
       <div style="font-weight:800;margin-bottom:10px;">Ajouter un élève</div>
       <input type="text" class="login-field" id="nouvelEleveId" placeholder="Prénom de l'élève (ex : Léa)" autocomplete="off" autocorrect="off" spellcheck="false">
+      <div style="font-size:0.8rem;color:var(--muted);font-weight:700;margin:-4px 0 10px;">⚠️ Vérifie bien l'orthographe : le prénom ne pourra plus être modifié après la création du compte.</div>
       <div style="display:flex;gap:8px;align-items:flex-start;">
         <input type="text" class="login-field" id="nouvelElevePass" placeholder="Mot de passe (ex : 45FG32)" autocomplete="off" autocorrect="off" spellcheck="false" style="font-family:monospace;letter-spacing:1px;">
         <button class="btn btn-secondary" style="padding:13px 16px;" title="Générer un autre mot de passe" onclick="ensRegenererMotDePasseEleve()">🎲</button>
