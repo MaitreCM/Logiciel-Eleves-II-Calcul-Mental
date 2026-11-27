@@ -4086,7 +4086,7 @@ window.MoteurAdaptatif = {
     <button class="btn btn-secondary" style="width:100%;" onclick="ouvrirResultats()">📊 Résultats des élèves</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirRecompensesGlobales()">🎁 Récompenses pour toutes les classes</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirCalculs()">🧮 Choix des calculs (toutes les classes)</button>
-    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirEvaluation()">📄 Évaluation imprimable</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirEvaluation()">📄 Évaluation / entraînement imprimable</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirReglages()">⚙️ Réglages du logiciel</button>
     <div id="listeClasses" style="margin-top:20px;"></div>
     <div class="cadre-creation">
@@ -4169,12 +4169,16 @@ window.MoteurAdaptatif = {
   <div style="width:100%;max-width:520px;margin:0 auto;">
     <button class="btn btn-secondary" style="padding:9px 16px;font-size:0.85rem;" onclick="nav('EnsAdmin','back')">← Retour aux classes</button>
   </div>
-  <div class="app-title" style="margin-top:18px;font-size:1.8rem;">📄 Évaluation imprimable</div>
+  <div class="app-title" style="margin-top:18px;font-size:1.8rem;">📄 Évaluation / entraînement</div>
   <div class="login-box" style="margin-top:12px;max-width:520px;">
-    <div class="progres-legende">Crée une feuille de 30 calculs tirés au hasard (avec la page de correction), à imprimer ou à enregistrer en PDF. Chaque clic sur « Créer » donne une nouvelle version.</div>
-    <label class="eval-label" for="evalClasse">Classe</label>
+    <div class="progres-legende">Crée une feuille de calculs tirés au hasard (avec la page de correction), à imprimer ou à enregistrer en PDF. Chaque clic sur « Créer » donne une nouvelle version.</div>
+    <label class="eval-label" for="evalMode">Type de feuille</label>
+    <select class="eval-champ" id="evalMode" onchange="evalModeChange()"><option value="eval">Évaluation</option><option value="entrainement">Entraînement</option></select>
+    <label class="eval-label" for="evalNb">Nombre de calculs (de 10 à 30)</label>
+    <input class="eval-champ" id="evalNb" type="number" min="10" max="30" step="1" value="20" inputmode="numeric">
+    <label class="eval-label" for="evalClasse" id="evalClasseLabel">Classe</label>
     <select class="eval-champ" id="evalClasse"><option>CM1</option><option>CM2</option><option value="">(sans niveau)</option></select>
-    <label class="eval-label" for="evalIntitule">Intitulé : « Calcul mental : … »</label>
+    <label class="eval-label" for="evalIntitule" id="evalIntituleLabel">Intitulé : « Calcul mental : … »</label>
     <input class="eval-champ" id="evalIntitule" type="text" maxlength="80" placeholder="Choisis des calculs ci-dessous" oninput="evalIntituleManuel=true">
     <label class="eval-label">Niveaux (étoiles) des calculs tirés</label>
     <div class="eval-niveaux">
@@ -4184,7 +4188,7 @@ window.MoteurAdaptatif = {
     <label class="eval-label">Calculs à évaluer</label>
     <div id="evalListe"></div>
     <div class="reg-statut" id="evalStatut"></div>
-    <button class="btn btn-primary" style="width:100%;" onclick="creerEvaluation()">📄 Créer l'évaluation</button>
+    <button class="btn btn-primary" style="width:100%;" id="evalBouton" onclick="creerEvaluation()">📄 Créer l'évaluation</button>
   </div>
 </div>
 
@@ -6194,9 +6198,9 @@ async function transmettreCalculsAuxEleves(){
 }
 
 // ================================================================
-// ÉVALUATION IMPRIMABLE : 30 calculs tirés au hasard + page de correction (impression / PDF)
+// ÉVALUATION / ENTRAÎNEMENT IMPRIMABLE : 10 à 30 calculs tirés au hasard + page de correction (impression / PDF)
 // ================================================================
-const NB_EVAL=30;
+const NB_EVAL=20;   // nombre de calculs proposé par défaut (l'enseignant choisit de 10 à 30)
 let evalSel=new Set(), evalImprimable=null, evalIntituleManuel=false;
 
 // Une question peut s'imprimer si c'est un calcul simple à réponse numérique (pas de maisons, fractions dessinées,
@@ -6220,6 +6224,7 @@ function calculsImprimables(){
 function ouvrirEvaluation(){
   evalSel=new Set(); evalIntituleManuel=false;
   document.getElementById('evalIntitule').value='';
+  document.getElementById('evalMode').value='eval'; document.getElementById('evalNb').value=NB_EVAL; evalModeChange();
   ['evalNivMin','evalNivMax'].forEach((id,i)=>{
     const sel=document.getElementById(id); sel.innerHTML='';
     for(let n=1;n<=6;n++){ const o=document.createElement('option'); o.value=n; o.textContent='⭐'.repeat(n); sel.appendChild(o); }
@@ -6227,6 +6232,11 @@ function ouvrirEvaluation(){
   });
   rendreEvaluation();
   nav('EnsEval','fwd');
+}
+function evalModeChange(){
+  const ent=document.getElementById('evalMode').value==='entrainement';
+  document.getElementById('evalIntituleLabel').textContent=ent?'Intitulé : « Entraînement : … »':'Intitulé : « Calcul mental : … »';
+  document.getElementById('evalBouton').textContent=ent?"📄 Créer l'entraînement":"📄 Créer l'évaluation";
 }
 function evalNiveauxChange(quel){
   const mn=document.getElementById('evalNivMin'), mx=document.getElementById('evalNivMax');
@@ -6297,14 +6307,17 @@ function creerEvaluation(){
   const ids=[...evalSel];
   if(!ids.length){ st.style.color='var(--accent1)'; st.textContent='⚠️ Coche au moins un calcul.'; return; }
   const lo=+document.getElementById('evalNivMin').value, hi=+document.getElementById('evalNivMax').value;
-  const qs=tirerQuestionsEvaluation(ids,lo,hi,NB_EVAL);
-  if(qs.length<NB_EVAL){ st.style.color='var(--accent1)'; st.textContent='⚠️ Impossible de fabriquer assez de calculs avec ces choix.'; return; }
-  const html=htmlEvaluation(qs, document.getElementById('evalClasse').value, document.getElementById('evalIntitule').value.trim());
+  const nb=Math.round(Number(document.getElementById('evalNb').value));
+  if(!(nb>=10&&nb<=30)){ st.style.color='var(--accent1)'; st.textContent='⚠️ Choisis un nombre de calculs entre 10 et 30.'; return; }
+  const qs=tirerQuestionsEvaluation(ids,lo,hi,nb);
+  if(qs.length<nb){ st.style.color='var(--accent1)'; st.textContent='⚠️ Impossible de fabriquer assez de calculs avec ces choix.'; return; }
+  const html=htmlEvaluation(qs, document.getElementById('evalClasse').value, document.getElementById('evalIntitule').value.trim(), document.getElementById('evalMode').value);
   const w=window.open('','_blank');
   if(!w){ st.style.color='var(--accent1)'; st.textContent="⚠️ Le navigateur a bloqué la nouvelle fenêtre. Autorise les fenêtres pop-up pour ce site, puis réessaie."; return; }
   w.document.open(); w.document.write(html); w.document.close();
 }
-function htmlEvaluation(qs,classe,intitule){
+function htmlEvaluation(qs,classe,intitule,mode){
+  const ent=mode==='entrainement';
   const fmt=v=>String(Math.round(v*1e6)/1e6).replace('.',',');
   const cellule=(q,avecRep)=>{
     const rep=avecRep?echapperHtml(fmt(q.answer)):'&nbsp;', blanc='<span class="rep">'+rep+'</span>';
@@ -6322,12 +6335,12 @@ function htmlEvaluation(qs,classe,intitule){
   };
   const ECART=8, LARGEUR_UTILE=180;
   const colonnes=Math.max(...qs.map(besoinMm))*1.03+1 <= (LARGEUR_UTILE-2*ECART)/3 ? 3 : 2;
-  const grille=avecRep=>'<div class="grille" style="grid-template-columns:repeat('+colonnes+',1fr);--h:'+(colonnes===3?18:12)+'mm;--fs:14pt">'+qs.map(q=>'<div class="cell">'+cellule(q,avecRep)+'</div>').join('')+'</div>';
+  const grille=avecRep=>'<div class="grille" style="grid-template-columns:repeat('+colonnes+',1fr);--h:'+Math.min(22,Math.floor(180/Math.ceil(qs.length/colonnes)))+'mm;--fs:14pt">'+qs.map(q=>'<div class="cell">'+cellule(q,avecRep)+'</div>').join('')+'</div>';
   const ident='<div class="ident"><span>NOM : <i></i></span><span>Prénom : <i></i></span><span class="d">Date : <i></i></span></div>';
-  const titre='EVALUATION DE MATHEMATIQUES'+(classe?' '+echapperHtml(classe):'');
-  const sous='Calcul mental'+(intitule?' : '+echapperHtml(intitule):'');
+  const titre=(ent?'MATHÉMATIQUES – CALCUL MENTAL':'EVALUATION DE MATHEMATIQUES')+(classe?' '+echapperHtml(classe):'');
+  const sous=(ent?'Entraînement':'Calcul mental')+(intitule?' : '+echapperHtml(intitule):'');
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Évaluation — ${echapperHtml(intitule||'Calcul mental')}</title>
+<title>${ent?'Entraînement':'Évaluation'} — ${echapperHtml(intitule||'Calcul mental')}</title>
 <style>
 @page{size:A4;margin:0}
 *{box-sizing:border-box}
@@ -6353,7 +6366,7 @@ h2{text-align:center;font-size:13pt;font-weight:normal;margin:0 0 14mm}
 @media print{body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.barre{display:none}.feuille{margin:0;box-shadow:none}.feuille:last-child{page-break-after:auto}}
 </style></head><body>
 <div class="barre"><button onclick="window.print()">🖨️ Imprimer / Enregistrer en PDF</button>
-<span>Page 1 : l'évaluation · Page 2 : la correction. Dans la fenêtre d'impression, choisis « Enregistrer au format PDF » comme imprimante.</span></div>
+<span>Page 1 : ${ent?"l'entraînement":"l'évaluation"} · Page 2 : la correction. Dans la fenêtre d'impression, choisis « Enregistrer au format PDF » comme imprimante.</span></div>
 <div class="feuille">${ident}<h1>${titre}</h1><h2>${sous}</h2>
 <div class="res">Résultat : ........ / ${qs.length}</div>
 <div class="consigne">Effectue de tête les calculs suivants :</div>
