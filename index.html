@@ -386,6 +386,7 @@ body {
 /* ========== ESPACE ENSEIGNANT : menu, encadré, onglets ========== */
 .ens-entete { display:flex; align-items:center; justify-content:space-between; width:100%; max-width:480px; margin-top:40px; gap:10px; }
 .ens-entete .app-title { margin:0; text-align:left; }
+.ens-section { align-self:flex-start; text-align:left; margin:30px 0 14px; }
 .cadre-creation { background:var(--card); border:2px solid var(--surface); border-radius:16px; padding:16px 18px; margin-top:20px; }
 .cadre-creation .cadre-titre { font-weight:800; margin-bottom:12px; }
 .cadre-creation .login-field { background:var(--surface); }
@@ -4079,16 +4080,20 @@ window.MoteurAdaptatif = {
 ===================================================== -->
 <div class="screen" id="sEnsAdmin">
   <div class="ens-entete">
-    <div class="app-title">Mes classes</div>
+    <div class="app-title">Suivi des élèves</div>
     <button class="btn btn-secondary" style="padding:8px 16px;font-size:0.78rem;" onclick="deconnecterEnseignant()">Déconnexion</button>
   </div>
   <div class="login-box" style="margin-top:24px;max-width:480px;">
     <button class="btn btn-secondary" style="width:100%;" onclick="ouvrirResultats()">📊 Résultats des élèves</button>
-    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirRecompensesGlobales()">🎁 Récompenses pour toutes les classes</button>
-    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirCalculs()">🧮 Choix des calculs (toutes les classes)</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirEvaluation()">📄 Évaluation / entraînement imprimable</button>
+
+    <div class="app-title ens-section">Paramètres</div>
+    <button class="btn btn-secondary" style="width:100%;" onclick="ouvrirRecompensesGlobales()">🎁 Récompenses pour toutes les classes</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirCalculs()">🧮 Choix des calculs (toutes les classes)</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirReglages()">⚙️ Réglages du logiciel</button>
-    <div id="listeClasses" style="margin-top:20px;"></div>
+
+    <div class="app-title ens-section">Mes classes</div>
+    <div id="listeClasses"></div>
     <div class="cadre-creation">
       <div class="cadre-titre">Créer une classe</div>
       <input type="text" class="login-field" id="nouvelleClasseNom" placeholder="Nom de la classe (ex : CM1-A)">
@@ -4204,7 +4209,7 @@ window.MoteurAdaptatif = {
     </div>
   </div>
   <div class="login-box" style="margin-top:12px;max-width:480px;">
-    <div class="onglets-classes onglets-cat" id="ensEleveOnglets"></div>
+    <div class="progres-onglets" id="ensEleveOnglets"></div>
     <div id="ensEleveListe" style="display:flex;flex-direction:column;gap:7px;"></div>
   </div>
 </div>
@@ -6477,9 +6482,9 @@ function rendreFicheEleve(m){
   // Un onglet par type de calcul (addition, soustraction…) : on clique de l'un à l'autre, sans défilement
   ORDRE_CATS.forEach(cat=>{
     const b=document.createElement('button');
-    b.className='onglet-classe'+(cat===ficheCat?' selected':'');
-    b.textContent=CAT_NAMES[cat];
-    if(cat===ficheCat){ b.style.borderColor=COULEURS_CAT[cat]; b.style.color=COULEURS_CAT[cat]; }
+    b.className='progres-onglet'+(cat===ficheCat?' selected':'');
+    b.style.setProperty('--clr',COULEURS_CAT[cat]);
+    b.innerHTML='<span class="po-icon">'+CAT_ICONS[cat]+'</span><span>'+CAT_NAMES[cat]+'</span>';
     b.onclick=()=>{ if(cat===ficheCat)return; ficheCat=cat; rendreFicheEleve(); };
     onglets.appendChild(b);
   });
