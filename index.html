@@ -387,6 +387,37 @@ body {
 .ens-entete { display:flex; align-items:center; justify-content:space-between; width:100%; max-width:480px; margin-top:40px; gap:10px; }
 .ens-entete .app-title { margin:0; text-align:left; }
 .ens-section { align-self:flex-start; text-align:left; margin:30px 0 14px; }
+/* ---- Mise en page « ordinateur » (espace enseignant uniquement) : classe ens-pc sur <html> ---- */
+.ens-section.ens-titre-pc { display:none; }
+.ens-affichage { margin-top:18px; background:var(--card); border-radius:14px; padding:12px 14px; }
+.ens-choix { display:flex; align-items:center; gap:10px; font-weight:800; font-size:0.9rem; padding:6px 0; cursor:pointer; }
+.ens-choix input { width:20px; height:20px; accent-color:var(--accent3,#6bcb77); flex-shrink:0; }
+.fiche-cat-titre { font-weight:800; font-size:0.95rem; color:var(--clr); border-bottom:3px solid var(--clr); padding:0 2px 5px; margin-bottom:8px; }
+.fiche-cat { display:flex; flex-direction:column; gap:7px; }
+html.ens-pc #sEnsAdmin, html.ens-pc #sEnsClasse, html.ens-pc #sEnsEval, html.ens-pc #sEnsEleve, html.ens-pc #sEnsCalculs { max-width:1280px; padding-left:28px; padding-right:28px; }
+html.ens-pc #sEnsTableau { max-width:none; padding-left:20px; padding-right:20px; }
+html.ens-pc #sEnsAdmin .login-box, html.ens-pc #sEnsClasse .login-box, html.ens-pc #sEnsEval .login-box, html.ens-pc #sEnsEleve .login-box, html.ens-pc #sEnsCalculs .login-box,
+html.ens-pc #sEnsAdmin div[style*="max-width"], html.ens-pc #sEnsClasse div[style*="max-width"], html.ens-pc #sEnsEval div[style*="max-width"], html.ens-pc #sEnsEleve div[style*="max-width"], html.ens-pc #sEnsCalculs div[style*="max-width"] { max-width:none !important; }
+html.ens-pc #sEnsAdmin .ens-entete { max-width:none; justify-content:flex-end; }
+html.ens-pc #sEnsAdmin .ens-titre-mobile { display:none; }
+html.ens-pc #sEnsAdmin .ens-section.ens-titre-pc { display:block; }
+html.ens-pc #sEnsAdmin .ens-colonnes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:32px; align-items:start; }
+html.ens-pc #sEnsAdmin .ens-bloc .ens-section { margin-top:0; }
+html.ens-pc #sEnsClasse .login-box { display:grid; grid-template-columns:minmax(0,2fr) minmax(300px,1fr); gap:0 36px; align-items:start; }
+html.ens-pc #sEnsClasse #listeEleves, html.ens-pc #sEnsClasse .admin-statut { grid-column:1; }
+html.ens-pc #sEnsClasse .login-box > div:last-child { grid-column:2; grid-row:1 / span 2; margin-top:0 !important; background:var(--card); border-radius:16px; padding:16px 18px; }
+html.ens-pc #sEnsEval .login-box { display:grid; grid-template-columns:minmax(340px,1fr) minmax(0,1.4fr); gap:8px 36px; align-items:start; }
+html.ens-pc #sEnsEval .eval-col-g { grid-column:1; grid-row:1; }
+html.ens-pc #sEnsEval .eval-col-d { grid-column:2; grid-row:1 / span 2; }
+html.ens-pc #sEnsEval .eval-pied { grid-column:1; grid-row:2; }
+html.ens-pc #sEnsEleve #ensEleveListe { display:grid !important; grid-template-columns:repeat(3,minmax(0,1fr)); gap:22px 20px !important; align-items:start; }
+html.ens-pc #sEnsEleve #ensEleveListe .progres-msg { grid-column:1 / -1; }
+html.ens-pc #sEnsCalculs #calcCorps { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; align-items:start; }
+html.ens-pc #sEnsCalculs #calcCorps > :not(.calc-cat) { grid-column:1 / -1; }
+html.ens-pc #sEnsTableau .tableau-classe td { width:22px; min-width:22px; }
+html.ens-pc #sEnsTableau .tableau-classe .th-comp { width:22px; min-width:22px; }
+html.ens-pc #sEnsTableau .cel { width:20px; }
+
 .cadre-creation { background:var(--card); border:2px solid var(--surface); border-radius:16px; padding:16px 18px; margin-top:20px; }
 .cadre-creation .cadre-titre { font-weight:800; margin-bottom:12px; }
 .cadre-creation .login-field { background:var(--surface); }
@@ -4084,26 +4115,38 @@ window.MoteurAdaptatif = {
 ===================================================== -->
 <div class="screen" id="sEnsAdmin">
   <div class="ens-entete">
-    <div class="app-title">Suivi des élèves</div>
+    <div class="app-title ens-titre-mobile">Suivi des élèves</div>
     <button class="btn btn-secondary" style="padding:8px 16px;font-size:0.78rem;" onclick="deconnecterEnseignant()">Déconnexion</button>
   </div>
-  <div class="login-box" style="margin-top:24px;max-width:480px;">
-    <button class="btn btn-secondary" style="width:100%;" onclick="ouvrirResultats()">📊 Résultats des élèves</button>
-    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirEvaluation()">📄 Évaluation / entraînement imprimable</button>
+  <div class="login-box ens-colonnes" style="margin-top:24px;max-width:480px;">
+    <div class="ens-bloc">
+      <div class="app-title ens-section ens-titre-pc">Suivi des élèves</div>
+      <button class="btn btn-secondary" style="width:100%;" onclick="ouvrirResultats()">📊 Résultats des élèves</button>
+      <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirEvaluation()">📄 Évaluation / entraînement imprimable</button>
+    </div>
 
-    <div class="app-title ens-section">Paramètres</div>
-    <button class="btn btn-secondary" style="width:100%;" onclick="ouvrirRecompensesGlobales()">🎁 Récompenses pour toutes les classes</button>
-    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirCalculs()">🧮 Choix des calculs (toutes les classes)</button>
-    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirReglages()">⚙️ Réglages du logiciel</button>
+    <div class="ens-bloc">
+      <div class="app-title ens-section">Paramètres</div>
+      <button class="btn btn-secondary" style="width:100%;" onclick="ouvrirRecompensesGlobales()">🎁 Récompenses pour toutes les classes</button>
+      <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirCalculs()">🧮 Choix des calculs (toutes les classes)</button>
+      <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="ouvrirReglages()">⚙️ Réglages du logiciel</button>
+      <div class="ens-affichage">
+        <div class="eval-label" style="margin-top:0;">Mise en page de mes écrans</div>
+        <label class="ens-choix"><input type="radio" name="ensAffichage" value="mobile" onchange="choisirAffichageEns('mobile')"> 📱 Smartphone / tablette</label>
+        <label class="ens-choix"><input type="radio" name="ensAffichage" value="pc" onchange="choisirAffichageEns('pc')"> 💻 Ordinateur</label>
+      </div>
+    </div>
 
-    <div class="app-title ens-section">Mes classes</div>
-    <div id="listeClasses"></div>
-    <div class="cadre-creation">
-      <div class="cadre-titre">Créer une classe</div>
-      <input type="text" class="login-field" id="nouvelleClasseNom" placeholder="Nom de la classe (ex : CM1-A)">
-      <input type="text" class="login-field" id="nouvelleClasseAnnee" placeholder="Année, … (facultatif)">
-      <div class="login-error" id="ensAdminErreur"></div>
-      <button class="btn btn-primary" onclick="creerNouvelleClasse()">+ Créer la classe</button>
+    <div class="ens-bloc">
+      <div class="app-title ens-section">Mes classes</div>
+      <div id="listeClasses"></div>
+      <div class="cadre-creation">
+        <div class="cadre-titre">Créer une classe</div>
+        <input type="text" class="login-field" id="nouvelleClasseNom" placeholder="Nom de la classe (ex : CM1-A)">
+        <input type="text" class="login-field" id="nouvelleClasseAnnee" placeholder="Année, … (facultatif)">
+        <div class="login-error" id="ensAdminErreur"></div>
+        <button class="btn btn-primary" onclick="creerNouvelleClasse()">+ Créer la classe</button>
+      </div>
     </div>
   </div>
 </div>
@@ -4180,6 +4223,7 @@ window.MoteurAdaptatif = {
   </div>
   <div class="app-title" style="margin-top:18px;font-size:1.8rem;">📄 Évaluation / entraînement</div>
   <div class="login-box" style="margin-top:12px;max-width:520px;">
+    <div class="eval-col-g">
     <div class="progres-legende">Crée une feuille de calculs tirés au hasard (avec la page de correction), à imprimer ou à enregistrer en PDF. Chaque clic sur « Créer » donne une nouvelle version.</div>
     <div class="eval-ligne3">
       <div><label class="eval-label" for="evalMode">Type de feuille</label>
@@ -4196,10 +4240,15 @@ window.MoteurAdaptatif = {
     </div>
     <label class="eval-label" for="evalIntitule" id="evalIntituleLabel">Intitulé : « Calcul mental : … »</label>
     <input class="eval-champ" id="evalIntitule" type="text" maxlength="80" placeholder="Choisis des calculs ci-dessous" oninput="evalIntituleManuel=true">
+    </div>
+    <div class="eval-col-d">
     <label class="eval-label">Calculs à évaluer</label>
     <div id="evalListe"></div>
+    </div>
+    <div class="eval-pied">
     <div class="reg-statut" id="evalStatut"></div>
     <button class="btn btn-primary" style="width:100%;" id="evalBouton" onclick="creerEvaluation()">📄 Créer l'évaluation</button>
+    </div>
   </div>
 </div>
 
@@ -6244,6 +6293,19 @@ function ouvrirEvaluation(){
   rendreEvaluation();
   nav('EnsEval','fwd');
 }
+// ---- Mise en page de l'espace enseignant : smartphone / tablette (par défaut) ou ordinateur ----
+const CLE_AFFICHAGE_ENS='cm_ens_affichage';
+function lireAffichageEns(){ try{ return localStorage.getItem(CLE_AFFICHAGE_ENS)==='pc'?'pc':'mobile'; }catch(e){ return 'mobile'; } }
+function appliquerAffichageEns(){
+  const m=lireAffichageEns();
+  document.documentElement.classList.toggle('ens-pc',m==='pc');
+  document.querySelectorAll('input[name="ensAffichage"]').forEach(r=>{ r.checked=(r.value===m); });
+}
+function choisirAffichageEns(m){
+  try{ localStorage.setItem(CLE_AFFICHAGE_ENS,m==='pc'?'pc':'mobile'); }catch(e){}
+  appliquerAffichageEns();
+}
+appliquerAffichageEns();
 function evalModeChange(){
   const ent=document.getElementById('evalMode').value==='entrainement';
   document.getElementById('evalIntituleLabel').textContent=ent?'Intitulé : « Entraînement : … »':'Intitulé : « Calcul mental : … »';
@@ -6485,7 +6547,29 @@ function rendreFicheEleve(m){
   if(m) ficheProg=m;
   const liste=document.getElementById('ensEleveListe'), onglets=document.getElementById('ensEleveOnglets');
   liste.innerHTML=''; onglets.innerHTML='';
-  // Un onglet par type de calcul (addition, soustraction…) : on clique de l'un à l'autre, sans défilement
+  const ligneFiche=t=>{
+    const p=(ficheProg&&ficheProg[t.id])||{palier:1,compteur:0};
+    const row=document.createElement('div'); row.className='progres-row';
+    const nom=document.createElement('div'); nom.className='progres-nom'; nom.textContent=t.name.replace(/\n/g,' ');
+    const slot=document.createElement('span'); slot.className='etoiles-slot';
+    slot.innerHTML=etoilesHTML(p.palier,p.compteur,seuilDe(t.id));
+    row.appendChild(nom); row.appendChild(slot);
+    return row;
+  };
+  // Mise en page ordinateur : les 6 types de calcul sont affichés en même temps, sans onglets
+  if(document.documentElement.classList.contains('ens-pc')){
+    onglets.style.display='none';
+    ORDRE_CATS.forEach(cat=>{
+      const bloc=document.createElement('div'); bloc.className='fiche-cat'; bloc.style.setProperty('--clr',COULEURS_CAT[cat]);
+      const titre=document.createElement('div'); titre.className='fiche-cat-titre'; titre.textContent=CAT_ICONS[cat]+' '+CAT_NAMES[cat];
+      bloc.appendChild(titre);
+      TYPES[cat].forEach(t=>bloc.appendChild(ligneFiche(t)));
+      liste.appendChild(bloc);
+    });
+    return;
+  }
+  onglets.style.display='';
+  // Un onglet par type de calcul (addition, soustraction…), présentés comme « Mes progrès » côté élève
   ORDRE_CATS.forEach(cat=>{
     const b=document.createElement('button');
     b.className='progres-onglet'+(cat===ficheCat?' selected':'');
@@ -6494,14 +6578,7 @@ function rendreFicheEleve(m){
     b.onclick=()=>{ if(cat===ficheCat)return; ficheCat=cat; rendreFicheEleve(); };
     onglets.appendChild(b);
   });
-  TYPES[ficheCat].forEach(t=>{
-    const p=(ficheProg&&ficheProg[t.id])||{palier:1,compteur:0};
-    const row=document.createElement('div'); row.className='progres-row';
-    const nom=document.createElement('div'); nom.className='progres-nom'; nom.textContent=t.name.replace(/\n/g,' ');
-    const slot=document.createElement('span'); slot.className='etoiles-slot';
-    slot.innerHTML=etoilesHTML(p.palier,p.compteur,seuilDe(t.id));
-    row.appendChild(nom); row.appendChild(slot); liste.appendChild(row);
-  });
+  TYPES[ficheCat].forEach(t=>liste.appendChild(ligneFiche(t)));
 }
 
 // ---- Tableau de la classe : élèves en lignes, 51 compétences en colonnes ----
